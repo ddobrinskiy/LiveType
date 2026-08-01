@@ -56,6 +56,7 @@ class LiveTypeImeService : InputMethodService() {
     private val tokenProvider = TokenProvider()
 
     private lateinit var statusText: TextView
+    private lateinit var warningIcon: ImageView
     private lateinit var primaryButton: ImageButton
     private lateinit var enterButton: ImageButton
     private lateinit var backspaceButton: ImageButton
@@ -144,6 +145,36 @@ class LiveTypeImeService : InputMethodService() {
         indicators.addView(openAiIndicator.container)
         centreBlock.addView(indicators)
 
+        // The alarm icon shares a row with the status text and toggles between
+        // VISIBLE and INVISIBLE — never GONE. It therefore holds its column
+        // whether or not it is showing, so the text keeps the same wrapping
+        // width and the line does not jump every time the mic is taken away
+        // and handed back.
+        val statusRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            )
+        }
+        warningIcon = ImageView(this).apply {
+            setImageResource(R.drawable.ic_warning)
+            setColorFilter(ERROR_COLOR, PorterDuff.Mode.SRC_IN)
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            visibility = View.INVISIBLE
+            // The status text already says what is wrong; announcing the icon
+            // too would just repeat it.
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            layoutParams = LinearLayout.LayoutParams(
+                dp(STATUS_ICON_DP),
+                dp(STATUS_ICON_DP),
+            ).apply {
+                marginEnd = dp(6)
+                // Sits level with the first line when the status wraps.
+                topMargin = dp(1)
+            }
+        }
+
         // The recognised text is no longer mirrored here — it goes straight
         // into the editor. This line only carries status and errors.
         statusText = TextView(this).apply {
@@ -153,11 +184,14 @@ class LiveTypeImeService : InputMethodService() {
             textSize = 15f
             setTextColor(STATUS_COLOR)
             layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
+                0,
                 LinearLayout.LayoutParams.WRAP_CONTENT,
+                1f,
             )
         }
-        centreBlock.addView(statusText)
+        statusRow.addView(warningIcon)
+        statusRow.addView(statusText)
+        centreBlock.addView(statusRow)
         leftColumn.addView(centreBlock)
 
         val actions = LinearLayout(this).apply {
@@ -629,15 +663,18 @@ class LiveTypeImeService : InputMethodService() {
     }
 
     /**
-     * The single writer of the status line.
+     * The single writer of the status line — text, colour and alarm icon alike.
      *
-     * @param warning colours the text as a live problem the user should act on
-     *   — as opposed to a failure, which goes through [failSession].
+     * @param warning marks the status as a live problem the user should act on:
+     *   red text plus the alarm icon, which no other state shows. The session
+     *   itself stays up — a failure goes through [failSession] instead — and
+     *   the next plain [setState] clears both again.
      */
     private fun setState(newState: State, status: String, warning: Boolean = false) {
         state = newState
-        statusText.setTextColor(if (warning) WARNING_COLOR else STATUS_COLOR)
+        statusText.setTextColor(if (warning) ERROR_COLOR else STATUS_COLOR)
         statusText.text = status
+        warningIcon.visibility = if (warning) View.VISIBLE else View.INVISIBLE
         when (newState) {
             State.IDLE -> {
                 primaryButton.setImageResource(R.drawable.ic_mic)
@@ -876,12 +913,19 @@ class LiveTypeImeService : InputMethodService() {
         private const val INDICATOR_DP = 30
         private const val INDICATOR_ICON_DP = 18
 
+        /** Alarm glyph beside the status line; sized against the 15sp text. */
+        private const val STATUS_ICON_DP = 18
+
         private val KEYBOARD_BACKGROUND = Color.parseColor("#E0EAEC")
         private val STATUS_COLOR = Color.rgb(35, 60, 60)
-        private val ERROR_COLOR = Color.rgb(160, 40, 40)
 
-        /** Recoverable trouble — distinct from ERROR_COLOR, which ends a session. */
-        private val WARNING_COLOR = Color.parseColor("#8A5A00")
+        /**
+         * The one red for status-line text: failures and the recoverable
+         * microphone warning alike. INDICATOR_ERROR stays a glyph colour — on
+         * this background it only reaches 4.4:1 against the 4.5:1 that 15sp
+         * body text needs, where this red measures 6.1:1.
+         */
+        private val ERROR_COLOR = Color.rgb(160, 40, 40)
 
         private val INDICATOR_IDLE = Color.parseColor("#9AAAB0")
         private val INDICATOR_LOADING = Color.parseColor("#33474D")

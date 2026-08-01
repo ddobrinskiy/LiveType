@@ -109,7 +109,7 @@
     <string name="billing_error_malformed">The Worker\'s answer could not be read.</string>
 
     <!-- Defaults seeded into settings on first run -->
-    <string name="default_languages">en</string>
+    <string name="default_languages">ru,en</string>
     <string name="default_prompt">Dictation of messages and technical notes. Keep punctuation, English product names and the speaker\'s original language.</string>
     <string name="default_keywords" translatable="false">OpenAI\nChatGPT\nAndroid\nCloudflare\nWebSocket</string>
 </resources>

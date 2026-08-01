@@ -11,6 +11,9 @@ worker/.wrangler/
 *.dev.vars
 local.properties
 
+# Personal vocabulary in the clear. Only the age-encrypted copy is tracked.
+data/keywords.txt
+
 # Prebuilt APKs are distributed via GitHub Releases, not tracked in git.
 *.apk
 

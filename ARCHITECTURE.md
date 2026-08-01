@@ -144,9 +144,30 @@ Now: prewarm is debounced (400 ms, trailing edge), teardown is deferred by an
 session is capped at 5 minutes. Measured after the fix: **6 open/close cycles →
 0 new token requests, 6 reuses.**
 
-`generation` is **not** bumped on reuse. It tracks the lifetime of a
-`RealtimeTranscriber`; bumping it would orphan the callbacks of a socket that is
-still live, leaving the app deaf to a session it is holding open.
+**A completed phrase does not close the socket.** One transcription session
+handles many phrases: after
+`conversation.item.input_audio_transcription.completed`, sending more audio and
+another `input_audio_buffer.commit` on the *same* socket works. Verified against
+the live API on 2026-08-01 — three phrases through one session, each with its
+own `item_id` and its own `usage` of 3 s, so per-phrase billing stays exact.
+`completeSession` therefore commits the text, clears the per-phrase state
+(`partialTranscript` and `committedChars`, which must go together — one is an
+offset into the other) and lands back in `READY` with the indicators still
+green. Tapping stop no longer costs a worker round-trip, a fresh OpenAI session
+and a visible reconnect for nothing.
+
+The 5-minute ceiling is consequently measured from **last activity, not from
+when the socket opened**: `beginRecording` drops it and `completeSession`
+re-arms it. Armed once at `openSession` it would have killed an actively used
+session mid-conversation.
+
+`generation` is **not** bumped on reuse — and a completed phrase is a reuse. It
+tracks the lifetime of a `RealtimeTranscriber`; bumping it while the transcriber
+survives would orphan the callbacks of a socket that is still live, leaving the
+app deaf to a session it is holding open, including the `onClosed` that would
+tell it the session had died. Only the paths that actually destroy the
+transcriber bump it: `cancelDictation`, `failSession`, and the idle/grace
+teardowns that go through them.
 
 ### 3.5 The status line must never claim more than is true
 

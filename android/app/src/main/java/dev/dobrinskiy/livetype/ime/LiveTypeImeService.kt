@@ -115,8 +115,9 @@ class LiveTypeImeService : InputMethodService() {
     private val graceTeardownRunnable = Runnable { tearDownIdleSession("grace-expired") }
 
     /**
-     * Hard ceiling on a warm-but-unused session, armed in [openSession] and
-     * dropped in [beginRecording].
+     * Hard ceiling on a warm-but-unused session, armed in [openSession],
+     * dropped in [beginRecording] and re-armed by [completeSession]. It
+     * measures *idleness*, not the age of the socket — see [WARM_SESSION_MAX_MS].
      */
     private val warmCeilingRunnable = Runnable {
         // The user already tapped the mic and is waiting on this very socket;
@@ -598,7 +599,8 @@ class LiveTypeImeService : InputMethodService() {
      * at construction. Teardown bumps it again to orphan those callbacks.
      * Reusing a live session creates and destroys nothing, so it must not bump
      * — doing so would leave the socket open but every one of its callbacks
-     * silently discarded.
+     * silently discarded. A completed phrase is a reuse in exactly this sense;
+     * see [completeSession].
      */
     private fun openSession(settings: LiveTypeSettings, reason: String) {
         Log.i(TAG, "Session opening ($reason)")
@@ -607,7 +609,8 @@ class LiveTypeImeService : InputMethodService() {
         partialTranscript = StringBuilder()
         committedChars = 0
         // Realtime sessions expire server-side anyway; do not hold an unused
-        // one open indefinitely. Dropped again as soon as recording starts.
+        // one open indefinitely. Dropped again as soon as recording starts,
+        // and re-armed from scratch by every completed phrase.
         mainHandler.removeCallbacks(warmCeilingRunnable)
         mainHandler.postDelayed(warmCeilingRunnable, WARM_SESSION_MAX_MS)
         setState(State.CONNECTING, getString(R.string.status_getting_key))
@@ -778,12 +781,32 @@ class LiveTypeImeService : InputMethodService() {
         }
     }
 
+    /**
+     * A phrase finished: commit its text and go back to [State.READY] with the
+     * **socket still open**, ready for the next one.
+     *
+     * **One transcription session handles many phrases.** After
+     * `conversation.item.input_audio_transcription.completed` the same socket
+     * accepts more audio and another `input_audio_buffer.commit`; each phrase
+     * gets its own `item_id` and its own `usage`, so the ledger stays exact.
+     * Verified against the live API on 2026-08-01 — three phrases, one session,
+     * three separate 3-second usage events. Closing here would spend a worker
+     * round-trip, a fresh OpenAI session and a visible reconnect on nothing.
+     *
+     * **[generation] is deliberately not bumped.** It tracks the lifetime of
+     * the [RealtimeTranscriber] object, and the transcriber survives this
+     * method. Bumping would orphan the callbacks of a socket that is still
+     * live: no further delta, completion, error or `onClosed` would ever be
+     * acted on, and the app would go deaf to a session it is holding open.
+     * Same rule as session reuse in [openSession].
+     *
+     * The grace timer is left alone on purpose. It guards a socket whose field
+     * has gone away, and this method no longer closes the socket — cancelling
+     * it here would strand a live session behind a dead editor. Teardown still
+     * belongs to `onFinishInput`, the idle ceiling, [cancelDictation] and
+     * [failSession].
+     */
     private fun completeSession(transcript: String, returnToPrevious: Boolean) {
-        Log.i(TAG, "Session torn down (transcript-completed) from $state")
-        // The socket closes below, so neither session timer applies any more.
-        mainHandler.removeCallbacks(graceTeardownRunnable)
-        mainHandler.removeCallbacks(warmCeilingRunnable)
-        generation += 1
         autoStartOnReady = false
         // After a mid-dictation Enter the head of the transcript is already in
         // the editor, so commit only what is still pending. The local delta
@@ -804,17 +827,43 @@ class LiveTypeImeService : InputMethodService() {
 
         recorder?.stop()
         recorder = null
-        transcriber?.close()
-        transcriber = null
+
+        // Per-phrase state, and only per-phrase state — everything the next
+        // phrase must not inherit. Both fields have to go together, because
+        // [pendingTranscript] reads one as an offset into the other: a stale
+        // committedChars left over from this phrase would slice into (or past
+        // the end of) the next phrase's buffer and either re-commit this
+        // phrase's tail or swallow the new one whole. insertNewline,
+        // deleteWordBackwards and pasteRecentPhrase only ever raise
+        // committedChars while a phrase is in flight (RECORDING / CONNECTING /
+        // FINISHING) and never in READY, so zero is exactly what the next
+        // phrase should start from.
         partialTranscript = StringBuilder()
         committedChars = 0
+
+        // Defensive: the completion came from a live transcriber, so this is
+        // normally true. If the socket did go away, fall back to the old
+        // behaviour rather than sit in READY with nothing behind it.
+        val socketHeld = transcriber != null
+        Log.i(TAG, "Phrase completed from $state; socket ${if (socketHeld) "held" else "gone"}")
+        mainHandler.removeCallbacks(warmCeilingRunnable)
+        if (socketHeld) {
+            // The ceiling measures idleness, not the age of the socket. A
+            // completed phrase is activity, so the five minutes start again
+            // here; otherwise the timer armed back in openSession would kill a
+            // session in the middle of an active conversation.
+            mainHandler.postDelayed(warmCeilingRunnable, WARM_SESSION_MAX_MS)
+        }
         // setState writes the status line, so pick the wording here rather
-        // than setting it above where setState would overwrite it.
+        // than setting it above where setState would overwrite it. "Done" is
+        // still the feedback for the phrase; READY plus two green indicators
+        // is what says the connection is still there.
         setState(
-            State.IDLE,
+            if (socketHeld) State.READY else State.IDLE,
             getString(if (recognised) R.string.status_done else R.string.status_no_speech),
         )
-        setConnectionStates(ConnectionState.IDLE, ConnectionState.IDLE)
+        val indicators = if (socketHeld) ConnectionState.OK else ConnectionState.IDLE
+        setConnectionStates(indicators, indicators)
 
         // The flag gates the stored preference: while it is off the switch
         // never happens, whatever the user saved earlier.
@@ -1233,6 +1282,10 @@ class LiveTypeImeService : InputMethodService() {
          * server-side anyway, so holding one past a few minutes buys nothing:
          * somebody who has stared at the keyboard for five minutes without
          * tapping the mic is not about to, and reconnecting costs a second.
+         *
+         * It is measured from **last activity**, not from when the socket
+         * opened: [beginRecording] drops it and [completeSession] re-arms it,
+         * so a session carrying phrase after phrase is never cut off mid-way.
          */
         private const val WARM_SESSION_MAX_MS = 5 * 60_000L
 

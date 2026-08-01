@@ -51,6 +51,7 @@ Last updated: 2026-08-01.
 | 17 | Silenced-mic shown red + warning icon, auto-recovers | build only | | |
 | 18 | Prewarm debounce + 8s grace + 5min ceiling | device — measured 6 open/close cycles → **0** extra token requests, 6 reuses | | |
 | 19 | Fix: mic tap mid-connect + focus loss no longer records with the keyboard hidden | build only | | |
+| 31 | Session survives a completed phrase: back to `READY`, indicators stay green, ceiling re-armed per phrase | build only — multi-phrase reuse proven against the live API, not yet on the device | | |
 
 ## Backend
 

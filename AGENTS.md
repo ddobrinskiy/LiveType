@@ -46,6 +46,9 @@ OPENAI_API_KEY=sk-project-...
 DEVICE_SECRET=<random 32+ hex chars>
 ```
 
+The Android **debug** build also reads this file and bakes `DEVICE_SECRET` in —
+see [Debug vs release configuration](#debug-vs-release-configuration).
+
 ### 2. Code modifications for HTTP (dev only)
 
 The app enforces HTTPS in production. For local testing, these changes are applied:
@@ -102,16 +105,69 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 ### 6. Configure the app
 
-On the phone, in LiveType settings:
-- **Token endpoint**: `http://127.0.0.1:8787/token`
-- **Device secret**: paste from `worker/.dev.vars`
-- Languages, prompt, keywords as desired
+**Debug builds configure themselves** — nothing to type. See
+[Debug vs release configuration](#debug-vs-release-configuration). Set
+languages, prompt and keywords as desired; the endpoint and device secret are
+already filled in.
+
+Release builds start blank and must be configured by hand:
+- **Token endpoint**: your deployed worker's `https://.../token`
+- **Device secret**: paste from wherever you keep it
 
 ### 7. Test
 
 - Open any text field, select LiveType as keyboard
 - Press the microphone button
 - Watch logs: `adb logcat --pid=$(adb shell pidof -s dev.dobrinskiy.livetype) | grep -E "(LiveTypeIme|LiveTypeToken)"`
+
+## Debug vs release configuration
+
+`android/app/build.gradle.kts` reads `worker/.dev.vars` at configuration time
+and exposes two `buildConfigField`s. They differ per build type:
+
+| | `BuildConfig.DEFAULT_TOKEN_ENDPOINT` | `BuildConfig.DEFAULT_DEVICE_SECRET` |
+|---|---|---|
+| **debug** | `http://127.0.0.1:8787/token` | `DEVICE_SECRET` from `worker/.dev.vars` |
+| **release** | `""` | `""` |
+
+`AppSettings.load()` uses them as the `SharedPreferences` **defaults only**. A
+value the user saved always wins — the baked values never overwrite stored
+settings, and clearing a field on the phone stays cleared.
+
+Rules the build enforces:
+
+- **`OPENAI_API_KEY` is never read into the app.** It belongs to the worker
+  alone. Only `DEVICE_SECRET` crosses over, and only into debug.
+- **A missing `worker/.dev.vars` is not an error.** Fresh clones and CI have no
+  such file; the secret falls back to `""` and the build carries on.
+- **Release gets literal empty strings**, not "whatever was parsed". The parse
+  result is wired to the debug build type only.
+
+### The debug APK contains the device secret — do not distribute it
+
+Baking the secret in trades secrecy for convenience on a phone you own and
+install to over `adb`. The consequence is unavoidable: `app-debug.apk` has the
+secret in plaintext inside `classes*.dex`, and anyone holding that APK can mint
+tokens against your worker.
+
+- Never attach a debug APK to a GitHub Release, an issue, a chat, or a bug
+  report. Ship `assembleRelease` output only.
+- `*.apk` is in `.gitignore` for this reason. Do not remove that line.
+- If a debug APK does escape, rotate `DEVICE_SECRET` in `worker/.dev.vars` and
+  in the deployed worker.
+
+Verify a release build is clean before publishing it:
+
+```bash
+cd android && ANDROID_HOME=$HOME/Library/Android/sdk ./gradlew assembleRelease
+SECRET=$(grep '^DEVICE_SECRET=' ../worker/.dev.vars | cut -d= -f2-)
+REL=app/build/outputs/apk/release/app-release-unsigned.apk
+strings "$REL" | grep -F "$SECRET"          # expect: no output, exit 1
+strings app/build/outputs/apk/debug/app-debug.apk | grep -cF "$SECRET"  # expect: 1
+```
+
+The debug check is the control: if it does not find the secret, the release
+check proves nothing about your grep.
 
 ## Logging
 

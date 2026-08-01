@@ -1,6 +1,7 @@
 package dev.dobrinskiy.livetype.config
 
 import android.content.Context
+import dev.dobrinskiy.livetype.BuildConfig
 import dev.dobrinskiy.livetype.R
 
 data class LiveTypeSettings(
@@ -31,8 +32,16 @@ object AppSettings {
         val defaultPrompt = context.getString(R.string.default_prompt)
         val defaultKeywords = context.getString(R.string.default_keywords)
         return LiveTypeSettings(
-            tokenEndpoint = preferences.getString(TOKEN_ENDPOINT, "").orEmpty().trim(),
-            deviceSecret = preferences.getString(DEVICE_SECRET, "").orEmpty(),
+            // BuildConfig defaults are the debug build's baked-in dev credentials
+            // (empty in release). Only a default: anything the user saved wins,
+            // including an explicitly cleared value.
+            tokenEndpoint = preferences
+                .getString(TOKEN_ENDPOINT, BuildConfig.DEFAULT_TOKEN_ENDPOINT)
+                .orEmpty()
+                .trim(),
+            deviceSecret = preferences
+                .getString(DEVICE_SECRET, BuildConfig.DEFAULT_DEVICE_SECRET)
+                .orEmpty(),
             languages = preferences
                 .getString(LANGUAGES, defaultLanguages)
                 .orEmpty()

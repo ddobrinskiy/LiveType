@@ -10,6 +10,7 @@
     <string name="status_getting_key">Получаю временный ключ…</string>
     <string name="status_connecting_openai">Подключаюсь к OpenAI…</string>
     <string name="status_listening">Говори — текст появится по мере распознавания</string>
+    <string name="status_mic_in_use">Микрофон занят другим приложением — диктовка приостановлена</string>
     <string name="status_finishing">Завершаю фразу…</string>
     <string name="status_done">Готово</string>
     <string name="status_no_speech">Речь не распознана</string>

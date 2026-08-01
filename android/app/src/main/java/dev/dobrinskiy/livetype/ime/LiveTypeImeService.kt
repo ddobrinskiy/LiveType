@@ -501,6 +501,26 @@ class LiveTypeImeService : InputMethodService() {
                     if (thisGeneration == generation) failSession(message)
                 }
             },
+            // A microphone lost to another app is temporary and recoverable, so
+            // it must never reach failSession: the socket stays up and the
+            // transcript so far is kept. Only the status line changes, and it
+            // changes back on its own the moment the microphone returns.
+            onSilencedChanged = { silenced ->
+                mainHandler.post {
+                    if (thisGeneration != generation || state != State.RECORDING) return@post
+                    setState(
+                        State.RECORDING,
+                        getString(
+                            if (silenced) {
+                                R.string.status_mic_in_use
+                            } else {
+                                R.string.status_listening
+                            },
+                        ),
+                        warning = silenced,
+                    )
+                }
+            },
         )
         recorder = audioRecorder
 
@@ -608,9 +628,15 @@ class LiveTypeImeService : InputMethodService() {
         statusText.setTextColor(ERROR_COLOR)
     }
 
-    private fun setState(newState: State, status: String) {
+    /**
+     * The single writer of the status line.
+     *
+     * @param warning colours the text as a live problem the user should act on
+     *   — as opposed to a failure, which goes through [failSession].
+     */
+    private fun setState(newState: State, status: String, warning: Boolean = false) {
         state = newState
-        statusText.setTextColor(STATUS_COLOR)
+        statusText.setTextColor(if (warning) WARNING_COLOR else STATUS_COLOR)
         statusText.text = status
         when (newState) {
             State.IDLE -> {
@@ -853,6 +879,9 @@ class LiveTypeImeService : InputMethodService() {
         private val KEYBOARD_BACKGROUND = Color.parseColor("#E0EAEC")
         private val STATUS_COLOR = Color.rgb(35, 60, 60)
         private val ERROR_COLOR = Color.rgb(160, 40, 40)
+
+        /** Recoverable trouble — distinct from ERROR_COLOR, which ends a session. */
+        private val WARNING_COLOR = Color.parseColor("#8A5A00")
 
         private val INDICATOR_IDLE = Color.parseColor("#9AAAB0")
         private val INDICATOR_LOADING = Color.parseColor("#33474D")

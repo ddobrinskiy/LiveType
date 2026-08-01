@@ -35,12 +35,6 @@ only makes sense together with A1. Note the two databases are unrelated —
 deploying will not carry local rows across, so the cloud meter starts at zero
 unless you deliberately export and import. See ARCHITECTURE.md §3.8.
 
-### A3 — Publish the repository? *(raised 2026-08-01)*
-**Push to GitHub, public?**
-
-Prepared and committed locally: README, MIT licence, CI, `.gitignore`, secret
-scan clean. Never pushed — publishing is yours to trigger.
-
 ### A4 — Release signing *(raised 2026-08-01)*
 **Do you want to distribute release APKs, and where does the keystore live?**
 
@@ -57,44 +51,15 @@ flip FUTO's "Disable built-in voice input". No fork, no licence issue. Confirmed
 on-device that the voice slot is free. Not implemented — you asked whether it
 was possible, not for it to be done.
 
-### A8 — Test a clean install? *(raised 2026-08-01)*
-**May I wipe app data to verify the debug build self-configures?**
-
-The baked endpoint/secret are `SharedPreferences` *defaults*, so they only apply
-when nothing is saved — and your phone has saved settings, so that path has
-never actually run. Verifying needs
-`adb shell pm clear dev.dobrinskiy.livetype`, which also wipes your prompt and
-keywords. Your call.
-
-### A9 — APKs in the repo *(raised 2026-08-01)*
-**Was removing the committed APK the right call?**
-
-I added `*.apk` to `.gitignore` and deleted the stale
-`releases/LiveType-debug.apk` (built 30 Jul, before every fix in this session).
-Reversible until A3 happens.
-
----
-
-## B. Concerns — no decision needed, but you should know
-
-### B1 — Most of this session is unverified on the device
-9 of 30 features in `QA.md` have actually been seen working. Parallel agents
-were forbidden from touching the phone, so much of the UI went straight into a
-merge. The red silenced-mic alert in particular has never been looked at.
+### B1 — A quarter of the feature list is still unverified on the device
+23 of 44 rows in `QA.md` are user-confirmed and 11 more are closed as
+tool-verified; the rest have only been compiled. Parallel agents were forbidden
+from touching the phone, so much of the UI went straight into a merge.
 
 ### B2 — Long silence may end the turn server-side
 When another app takes the microphone mid-dictation we now show it honestly, but
 OpenAI's own logic may close the turn during the silent gap regardless. Untested,
 and nothing in our UI would currently reveal it.
-
-### B3 — CI has never run
-`.github/workflows/ci.yml` is written but no runner has executed it. It will
-first run — and possibly first fail — on push (A3).
-
-### B5 — Status text is indented relative to the indicators
-The warning-icon slot is reserved permanently so the line cannot jump when the
-icon appears. Cosmetic side effect: the status text starts ~24dp right of the
-indicators. Easy to align if it bothers you.
 
 ### B6 — Billing is a spend meter, not an audit
 Figures come from usage OpenAI reports to the phone, which the phone forwards.
@@ -108,6 +73,12 @@ closes it server-side at its own maximum age, `onClosed` surfaces that as a red
 "connection closed" status and the next mic tap reconnects from scratch. That is
 honest rather than silent, but it is a failure banner where there used to be
 none. Not yet observed; the 5-minute idle ceiling only bounds *unused* sessions.
+
+### B9 — The dictation prompt reverted to English *(raised 2026-08-01)*
+The clean-install test reset it to the English default, because the device
+locale is English; it had been the Russian wording. Semantically the same
+instruction. `adb shell input text` cannot type Cyrillic, so if you want the
+Russian one back it needs a few taps by hand.
 
 ### B8 — Cancel after the stop square is still billed *(raised 2026-08-01)*
 Cancel now abandons the phrase instead of tearing the session down, and while
@@ -132,4 +103,8 @@ app kept. Say so if you would rather under-report those.
 | R6 | Dark theme for keyboard contrast? | **No.** Background `#E0EAEC`; system glyphs made dark via `APPEARANCE_LIGHT_NAVIGATION_BARS`. | 2026-08-01 |
 | B4 | Should prewarm resume after a completed dictation? | **The question was wrong.** Nothing needs re-warming: one transcription session handles many phrases — verified on the live API, three phrases through one socket, each with its own `item_id` and `usage`. `completeSession` now keeps the socket and returns to `READY` with the indicators green; the "Done" feedback survives because nothing reconnects over it. The 5-minute ceiling is re-armed per phrase so it measures idleness, not session age. | 2026-08-01 |
 | R8 | Add rate limiting before deploying the Worker? | **Not for now.** The endpoint is a public URL guarded by one static `DEVICE_SECRET`, and that secret has already leaked once (in a screen recording) — but the OpenAI account carries a hard spend cap, so the worst case is bounded by that cap rather than open-ended. That makes a limiter a cost-control nicety rather than a prerequisite. Still worth adding if the worker is ever shared or the cap raised; rotating the secret remains the first response to a leak. | 2026-08-01 |
+| R9 | Publish the repository? | **Done.** Public at github.com/ddobrinskiy/LiveType under the personal account `ddobrinskiy` (not the work account `ddobrinskiy-top`). Full-history secret scan clean before pushing; CI went green on the first run. | 2026-08-01 |
+| R10 | Test a clean install? | **Done.** `pm clear` run with the settings backed up first. Confirmed the debug build self-configures: endpoint, device secret and the 45-term dictionary all appeared unaided. Cost: the prompt reverted to the English default (see B9). | 2026-08-01 |
+| R11 | Were the committed APKs right to remove? | **Yes, settled by publishing.** `*.apk` stays gitignored; releases go through GitHub Releases, which also keeps the debug APK — which carries the device secret — out of a public repo. | 2026-08-01 |
+| R12 | Would CI work? | **Yes.** First run on the initial push: both jobs green in 2m11s. | 2026-08-01 |
 | R7 | Should Paste also copy to the system clipboard? | **No.** The last phrase lives in app memory for five minutes and is inserted from there. The system clipboard is readable by every app — a materially weaker privacy posture, and inconsistent with "LiveType keeps no dictation history". | 2026-08-01 |

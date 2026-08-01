@@ -6,15 +6,15 @@
   "observability": {
     "enabled": true
   },
-  // Usage ledger behind the Billing screen. `wrangler dev` creates this
-  // locally on first use; `database_id` only matters for `wrangler deploy` and
-  // stays a placeholder until `wrangler d1 create livetype-usage` prints the
-  // real one. See AGENTS.md -> "Billing and usage tracking".
+  // Usage ledger behind the Billing screen. `wrangler dev` creates its own
+  // local copy on first use and ignores `database_id`; the id below is the
+  // real remote database (created 2026-08-01, region WEUR) that `wrangler
+  // deploy` binds to. The two are unrelated — see ARCHITECTURE.md §3.8.
   "d1_databases": [
     {
       "binding": "DB",
       "database_name": "livetype-usage",
-      "database_id": "REPLACE_WITH_ID_FROM_WRANGLER_D1_CREATE",
+      "database_id": "850f00b2-d22f-49ff-bcdb-f0eca6f087da",
       "migrations_dir": "migrations"
     }
   ]

@@ -67,18 +67,39 @@ phone talks to OpenAI directly.
 
 ---
 
-## 2. Cloudflare is not currently in the loop
+## 2. Cloudflare is half in the loop: the database exists, the Worker does not
 
-**`wrangler dev` runs the Worker runtime locally on the Mac.** No Cloudflare
-account is involved, nothing is deployed, and D1 is emulated on disk under
-`.wrangler/state`.
+**The remote D1 database is real.** `livetype-usage`,
+`850f00b2-d22f-49ff-bcdb-f0eca6f087da`, region WEUR, created in the
+`cf@dobrinskiy.me` account on 2026-08-01 with `0001_usage_events.sql` applied
+`--remote`. `worker/wrangler.jsonc` now carries that id instead of the old
+`REPLACE_WITH_ID_FROM_WRANGLER_D1_CREATE` placeholder, so a deploy would bind
+to something real. It starts empty, by design — see §3.8.
 
-The consequence, which is easy to forget: **dictation only works while the
-phone is tethered to the Mac over USB with the Worker running.** `adb reverse`
-forwards `phone:8787 → mac:8787`.
+**The Worker itself is still not deployed.** Two account-level gates stopped
+`wrangler deploy` on 2026-08-01, both needing the account owner rather than a
+code change:
 
-Deploying (`wrangler deploy`) is what makes the keyboard usable away from the
-desk. It is not done yet, and it is the user's call — see §5.
+1. **The Cloudflare account's email address is unverified.** Any write to
+   `/workers/scripts/*` returns `10034 — You need to verify your email address
+   to use Workers`. This blocks `wrangler secret put` and `wrangler deploy`
+   alike. (D1 is not gated on it, which is why step 1 succeeded.)
+2. **No `workers.dev` subdomain has ever been registered** (`10007`). One is
+   created by opening the Workers & Pages page in the dashboard once, or by
+   answering wrangler's interactive prompt — it names a permanent,
+   account-wide hostname, so it is not a choice to make on the owner's behalf.
+
+Until both are cleared, **`wrangler dev` on the Mac remains the only path** and
+**dictation only works while the phone is tethered over USB with the Worker
+running** — `adb reverse` forwards `phone:8787 → mac:8787`. That local path is
+not going away when the deploy lands: it stays the development loop, with its
+own separate local D1 under `.wrangler/state`.
+
+Deploying is what makes the keyboard usable away from the desk. See §5.
+
+**When it does deploy, it will be a public URL with no rate limiting** — one
+static `DEVICE_SECRET` is the only guard, and that secret has already leaked
+once, in a screen recording. See §5.5.
 
 ---
 
@@ -442,12 +463,16 @@ Screenshot the result for any UI change. See `AGENTS.md` for the commands.
 
 ## 5. Open questions
 
-1. **Deploy the Worker to Cloudflare?** Until then the keyboard only works
-   tethered to the Mac. Requires `wrangler deploy` plus a remote D1
-   (`wrangler d1 create livetype-usage`) for billing history to follow the phone.
-2. **Publish the repo?** It is prepared (README, MIT licence, CI, secret scan
-   clean) and committed locally, but never pushed — publishing is the user's
-   call.
+1. **Deploy the Worker to Cloudflare.** Decided yes; **blocked on the account,
+   not on the code** — see §2. The remote D1 half is done. What remains needs
+   the account owner: verify the Cloudflare account's email address, and let a
+   `workers.dev` subdomain be created. After that, `wrangler secret put
+   OPENAI_API_KEY`, `wrangler secret put DEVICE_SECRET`, `wrangler deploy`.
+   Until then the keyboard only works tethered to the Mac.
+2. **Publish the repo?** Done — public at `github.com/ddobrinskiy/LiveType`.
+   Which raises the stakes on item 5: anything committed here is world-readable,
+   and the README's rate-limiting recommendation is now advice given in public
+   about an endpoint that does not follow it.
 3. **Release signing.** `assembleRelease` currently produces an *unsigned* APK.
    Attaching builds to GitHub Releases needs a signing config fed from secrets,
    with the keystore kept out of the repo.
@@ -459,4 +484,10 @@ Screenshot the result for any UI change. See `AGENTS.md` for the commands.
    toggle would wire it up with no fork. Confirmed on-device that the voice slot
    is free: only `org.futo.voiceinput` declares one and it is not enabled.
    Not implemented.
-5. **Worker rate limiting** is recommended in the README but not configured.
+5. **Worker rate limiting** is recommended in the README but not configured, and
+   the decision was explicitly to deploy without it. The moment item 1 clears,
+   the token endpoint is a public URL whose only guard is a static
+   `DEVICE_SECRET` — one that has already leaked once, in a screen recording. A
+   holder of it can mint 60-second transcription sessions against the account's
+   OpenAI key, without limit, and the ledger in §3.8 would record the spend but
+   not stop it. Rotating the secret is the mitigation that exists today.

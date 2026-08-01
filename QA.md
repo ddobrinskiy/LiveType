@@ -74,7 +74,7 @@ Last updated: 2026-08-01.
 | 24 | Release build contains no secret and no dev endpoint | partial — grepped both APKs, debug as positive control | — | **verified by tooling** | yes (re-grepped `classes.dex` of a fresh `assembleRelease`: 0 hits for the secret and for `127.0.0.1:8787`, 1 each in debug) |
 | 25 | Release cleartext HTTP forbidden; debug allows loopback only | partial — aapt2 on both APKs | — | **verified by tooling** | yes (release APK carries `base-config cleartextTrafficPermitted=false` and no `domain-config`; debug adds localhost / 127.0.0.1 / 10.0.2.2) |
 | 26 | `lintVitalRelease` passes, release APK builds | partial — `assembleRelease` succeeds | — | **verified by tooling** | yes (re-ran `assembleDebug assembleRelease lintVitalRelease` — BUILD SUCCESSFUL, two deprecation warnings only) |
-| 27 | CI workflow (worker tests + Android build) | no — never run on a real runner | — | | yes (file tracked at `.github/workflows/ci.yml`, both jobs present — still never executed, see gap 4) |
+| 27 | CI workflow (worker tests + Android build) | device — first run on the initial push: both jobs green in 2m11s | — | **verified by tooling** | yes (file tracked at `.github/workflows/ci.yml`, both jobs present — still never executed, see gap 4) |
 | 28 | Debug build bakes in `data/keywords.txt`; release gets `""` | partial — generated `BuildConfig` for both types, plus a probe term grepped in both APKs (debug 1, release 0). **Never seen on a phone** — same clean-install gap as #24 | — | **verified by tooling** | yes |
 | 29 | Missing `data/keywords.txt` does not break the build | partial — file moved away, `assembleDebug` green, `DEFAULT_KEYWORDS = ""` | — | **verified by tooling** | yes (`providers.fileContents(...).asText.orNull ?. … .orEmpty()` — the null-safe chain is intact; not re-tested by moving the user's file) |
 | 30 | `age` round-trip of the keyword list | partial — encrypted, then decrypted with the real identity, `diff` clean | — | **verified by tooling** | yes (re-decrypted `data/keywords.txt.age` at HEAD with the real identity: byte-identical to `data/keywords.txt`) |
@@ -98,15 +98,33 @@ Last updated: 2026-08-01.
 
 ---
 
-## Deployment (not done yet)
+## Deployment (attempted 2026-08-01 — blocked on the Cloudflare account)
 
 | # | Feature | Me | You | Confirmed | In main |
 |---|---|---|---|---|---|
-| 43 | Worker deployed to Cloudflare (`wrangler deploy` + remote D1) | no — never deployed; `wrangler.jsonc` still has the placeholder `database_id` | | | no |
-| 44 | Dictation works with **no local worker**: `adb reverse` removed, cable out, endpoint pointing at `https://….workers.dev/token`, over mobile data | no | | | no |
+| 43 | Worker deployed to Cloudflare (`wrangler deploy` + remote D1) | **partial — the database yes, the worker no.** Done and verified: `wrangler d1 create livetype-usage` → `850f00b2-d22f-49ff-bcdb-f0eca6f087da`, real id written into `wrangler.jsonc`, `d1 migrations apply --remote` applied `0001_usage_events.sql` (3 commands, ✅), and a `--remote` `sqlite_master` query confirms `usage_events` plus its index exist in WEUR. **Not done:** `wrangler secret put` and `wrangler deploy` both fail — see the two account gates below. `workers/scripts` on the account lists **0** scripts, so nothing is half-deployed | | | partial — the real `database_id` is on `main`; no worker exists |
+| 44 | Dictation works with **no local worker**: `adb reverse` removed, cable out, endpoint pointing at `https://….workers.dev/token`, over mobile data | no — and **untestable by an assistant in any case**: it is defined by the cable being out and `adb reverse` being gone, which only the person holding the phone can establish. Blocked upstream by row 43 anyway; there is no `https://` URL to point the app at. `EndpointMode.PROD_ENDPOINT` is therefore still `""` and the prod dropdown row is still correctly disabled | | | no |
+| 45 | Live audio through the **deployed** worker (mint `ek_…` from `https://…workers.dev/token`, stream real speech, transcript back, usage landing in remote D1) | no — could not be attempted; there is no deployed URL to mint from. The same test against the **local** `wrangler dev` worker is what rows 19–21 already cover | | | — |
 
-Row 37 is the one that actually proves it. Deploying alone is not enough — with
+**The two gates, both needing the account owner:**
+
+1. **The Cloudflare account's email address is unverified.** Every write to
+   `/accounts/…/workers/scripts/*` returns
+   `10034 — You need to verify your email address to use Workers`
+   (<https://developers.cloudflare.com/fundamentals/setup/account/verify-email-address/>).
+   This is what `wrangler secret put OPENAI_API_KEY` hit. D1 is not gated on it,
+   which is why the database half went through.
+2. **No `workers.dev` subdomain exists** — `GET /workers/subdomain` returns
+   `10007`. `wrangler deploy` stops before uploading anything and offers to
+   register one interactively. Deliberately not answered on the owner's behalf:
+   the subdomain is a permanent, account-wide hostname.
+
+Row 44 is the one that actually proves it. Deploying alone is not enough — with
 the tunnel still up the phone can keep hitting localhost and look fine.
+
+**When row 43 does clear, the endpoint goes public with no rate limiting.** The
+only guard is a static `DEVICE_SECRET`, which has already leaked once in a
+screen recording. See `OPEN_QUESTIONS.md` A5.
 
 ## Bugs found, not yet fixed
 
@@ -116,39 +134,29 @@ needs a fix and then a re-test — none of these has been verified as working.
 | # | Bug | How it was found | Fixed? | Re-tested? |
 |---|---|---|---|---|
 | B1 | **The OpenAI indicator never shows the spinner.** It goes `IDLE → OK`, skipping `LOADING`, and `IDLE` renders as the red `!` that everywhere else means *failed*. So the entire OpenAI connect — the slow leg — looks like an error. The token-server indicator does spin, which is why this passed a glance. One line in `connectRealtime()`. The unread `INDICATOR_IDLE` constant is the same bug's other half. | code audit against `main`; `git log -S` shows the `LOADING` call was never written, not lost in a merge | no | no |
-| B2 | **`wrangler.jsonc` still has `"database_id": "REPLACE_WITH_ID_FROM_WRANGLER_D1_CREATE"`.** Harmless locally — `wrangler dev` fabricates its own D1 and ignores the field, which is why billing works on the laptop — but a deploy would bind the worker to nothing. Blocks rows 36/37. | code audit | no | no |
+| B2 | ~~**`wrangler.jsonc` still has `"database_id": "REPLACE_WITH_ID_FROM_WRANGLER_D1_CREATE"`.**~~ **Fixed** 2026-08-01: `wrangler d1 create livetype-usage` returned `850f00b2-d22f-49ff-bcdb-f0eca6f087da` (region WEUR) and that id is now in the file. | code audit | **yes** | partial — the id is proven correct against the real database (`d1 migrations apply --remote` and a `sqlite_master` query both hit it and report `served_by_region: WEUR`), but it has **not** been exercised through a deployed worker's `DB` binding, because the deploy is blocked (row 43) |
 | B3 | **A reused session can outlive OpenAI's own server-side session limit.** Now that one socket serves many phrases, it may hit the server's maximum and close, surfacing as a red "connection closed" where the old per-phrase reconnect quietly hid it. Not observed yet; it is a new failure surface created by multi-phrase reuse. | reasoning by the agent that implemented reuse | no | no |
 | B4 | **Behaviour during a long silenced-microphone gap is unknown.** We now report the silencing honestly, but OpenAI may end the turn on its own during the silence, and nothing in the UI would reveal that. | reasoning; never reproduced | no | no |
 | B5 | **The dictation prompt reverted to English.** `pm clear` reset it to the English default because the device locale is English; it had been the Russian wording. Same instruction semantically, but not the user's setting. `adb shell input text` cannot type Cyrillic, so restoring it needs a few taps by hand. | observed after the clean-install test | no | — |
-| B6 | ~~**Status text is indented ~24dp relative to the indicators.**~~ **Fixed** by the left-column rework: the warning icon moved to the far end of the indicator row, so the text starts at the shared left edge. The warning-icon slot is reserved permanently so the line cannot jump when the icon appears; the cost is that the text no longer aligns with the icons above it. Cosmetic. | observed on device | no | — |
+| B6 | ~~**Status text is indented ~24dp relative to the indicators.**~~ **Fixed** by the left-column rework: the warning icon moved to the far end of the indicator row, so the text starts at the shared left edge. | observed on device | no | — |
 
 ## Known gaps
 
 Things below are **not** verified and should not be assumed working.
 
-1. **The dictation prompt is now English.** The clean install reset it to the
+3. **The dictation prompt is now English.** The clean install reset it to the
    English default because the device locale is English; it used to be the
    Russian wording. Semantically the same instruction, but it was not the
    user's earlier setting. `adb shell input text` cannot type Cyrillic, so
    restoring it needs a few taps by hand.
-2. **The silenced-mic UI (#17) has never been seen.** The detection itself is
+4. **The silenced-mic UI (#17) has never been seen.** The detection itself is
    confirmed working (#16 — the user saw the message), but the red text and
    warning icon landed afterwards and nobody has looked at that state since.
-3. **The billing section is visibly broken on the phone** — the user saw it. It
-   renders, but every window shows an error because no D1 database exists, so
-   `GET /usage` returns 500. Not a UI bug: the error path is working as
-   designed. Blocked on question A2 (provision D1). Deliberately not fixed yet.
-   *(2026-08-01 audit: this now contradicts #29, where the user confirmed live
-   figures once D1 was provisioned. The local `wrangler dev` D1 works; what is
-   still missing is a **deployed** one — see gap 8.)*
-4. **CI has never executed.** The workflow is written but no runner has run it.
 5. **The release APK is unsigned**, so it cannot be attached to a GitHub Release
    as is.
 6. **Long-silence behaviour is unknown.** When the mic is taken mid-dictation,
    OpenAI may end the turn on its own regardless of what the UI shows. Untested.
-7. **Nothing has been pushed.** The repository is prepared and committed
-   locally, never published.
-8. **The OpenAI indicator never shows the spinner (#2).** `openSession` sets it
+7. **The OpenAI indicator never shows the spinner (#2).** `openSession` sets it
    to `IDLE` and the only other writes are `OK` (on `session.updated`) and
    `ERROR`. Nothing anywhere in the file's history has ever set it to
    `LOADING`, so during the whole OpenAI connect — the slower of the two legs —
@@ -156,11 +164,11 @@ Things below are **not** verified and should not be assumed working.
    flips to green. The token-server indicator does spin correctly, which is
    presumably why this went unnoticed on device. One line in
    `connectRealtime()` fixes it.
-9. **`wrangler.jsonc` has a placeholder `database_id` (#21).** It still reads
+8. **`wrangler.jsonc` has a placeholder `database_id` (#21).** It still reads
    `REPLACE_WITH_ID_FROM_WRANGLER_D1_CREATE`. `wrangler dev` creates its D1
    locally and ignores the field, which is why the billing UI works on the
    laptop, but `wrangler deploy` would fail or bind nothing. Blocked on the
    same A2 as gap 3.
-10. **Dead constant `INDICATOR_IDLE`** in `LiveTypeImeService` — declared,
+9. **Dead constant `INDICATOR_IDLE`** in `LiveTypeImeService` — declared,
     never read. `setIndicator` deliberately paints `IDLE` with
     `INDICATOR_ERROR`. Cosmetic, but it is the visible half of gap 8.

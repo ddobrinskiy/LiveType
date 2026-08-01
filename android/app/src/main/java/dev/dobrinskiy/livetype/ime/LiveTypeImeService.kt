@@ -13,6 +13,7 @@ import android.os.Handler
 import android.os.Looper
 import android.text.InputType
 import android.view.Gravity
+import android.view.KeyEvent
 import android.view.View
 import android.view.WindowInsets
 import android.view.WindowInsetsController
@@ -37,8 +38,15 @@ import java.util.concurrent.Executors
 
 class LiveTypeImeService : InputMethodService() {
     private enum class State {
+        /** Nothing open: no token, no socket. */
         IDLE,
+
+        /** Fetching a token or opening the socket. */
         CONNECTING,
+
+        /** Socket is up and idling — waiting for the mic tap. */
+        READY,
+
         RECORDING,
         FINISHING,
     }
@@ -50,6 +58,8 @@ class LiveTypeImeService : InputMethodService() {
     private lateinit var statusText: TextView
     private lateinit var primaryButton: ImageButton
     private lateinit var enterButton: ImageButton
+    private lateinit var backspaceButton: ImageButton
+    private lateinit var keyboardButton: ImageButton
     private lateinit var cancelButton: Button
     private lateinit var settingsButton: Button
     private lateinit var serverIndicator: Indicator
@@ -62,6 +72,15 @@ class LiveTypeImeService : InputMethodService() {
     private var partialTranscript = StringBuilder()
     /** Chars of [partialTranscript] already committed by a mid-dictation Enter. */
     private var committedChars = 0
+
+    /**
+     * Set when the user asks to record before the socket is up: either the mic
+     * tap itself opened the session, or it landed mid-[State.CONNECTING] on a
+     * prewarmed one. Either way [State.READY] is skipped and `onReady` starts
+     * recording straight away, so no tap is ever swallowed.
+     */
+    private var autoStartOnReady = false
+
     @Volatile
     private var generation = 0
 
@@ -72,7 +91,7 @@ class LiveTypeImeService : InputMethodService() {
         }
 
         // Horizontal split: light-weight status and secondary actions on the
-        // left, the two big thumb targets pinned to the right edge.
+        // left, the 2x2 grid of big thumb targets pinned to the right edge.
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             setPadding(dp(14), dp(12), dp(14), dp(12))
@@ -128,7 +147,9 @@ class LiveTypeImeService : InputMethodService() {
         // The recognised text is no longer mirrored here — it goes straight
         // into the editor. This line only carries status and errors.
         statusText = TextView(this).apply {
-            setText(R.string.status_ready)
+            // Honest default: nothing is connected until onStartInputView
+            // prewarms and the socket reports ready.
+            setText(R.string.status_not_connected)
             textSize = 15f
             setTextColor(STATUS_COLOR)
             layoutParams = LinearLayout.LayoutParams(
@@ -166,46 +187,49 @@ class LiveTypeImeService : InputMethodService() {
         leftColumn.addView(actions)
         content.addView(leftColumn)
 
+        // 2x2 thumb grid:  [keyboard] [mic]
+        //                  [backspace] [enter]
         val rightColumn = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             layoutParams = LinearLayout.LayoutParams(
-                dp(THUMB_BUTTON_DP),
+                LinearLayout.LayoutParams.WRAP_CONTENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT,
             )
         }
+        val topRow = thumbRow().apply {
+            (layoutParams as LinearLayout.LayoutParams).bottomMargin = dp(THUMB_GAP_DP)
+        }
+        val bottomRow = thumbRow()
 
-        primaryButton = ImageButton(this).apply {
-            setImageResource(R.drawable.ic_mic)
-            setColorFilter(BUTTON_ICON_COLOR, PorterDuff.Mode.SRC_IN)
-            scaleType = ImageView.ScaleType.FIT_CENTER
-            setPadding(dp(30), dp(30), dp(30), dp(30))
-            contentDescription = getString(R.string.cd_start_dictation)
-            setOnClickListener {
-                when (state) {
-                    State.IDLE -> startDictation()
-                    State.RECORDING -> finishDictation()
-                    State.CONNECTING, State.FINISHING -> Unit
-                }
-            }
-            layoutParams = LinearLayout.LayoutParams(
-                dp(THUMB_BUTTON_DP),
-                dp(THUMB_BUTTON_DP),
-            ).apply { bottomMargin = dp(8) }
+        keyboardButton = createThumbButton(
+            R.drawable.ic_keyboard,
+            R.string.cd_previous_keyboard,
+        ) {
+            // Leaving the keyboard mid-session would strand the socket and the
+            // composing region, so tear the session down first.
+            cancelDictation(clearComposingText = false)
+            switchToPreviousInputMethod()
         }
-        enterButton = ImageButton(this).apply {
-            setImageResource(R.drawable.ic_enter)
-            setColorFilter(BUTTON_ICON_COLOR, PorterDuff.Mode.SRC_IN)
-            scaleType = ImageView.ScaleType.FIT_CENTER
-            setPadding(dp(30), dp(30), dp(30), dp(30))
-            contentDescription = getString(R.string.cd_newline)
-            setOnClickListener { insertNewline() }
-            layoutParams = LinearLayout.LayoutParams(
-                dp(THUMB_BUTTON_DP),
-                dp(THUMB_BUTTON_DP),
-            )
+        primaryButton = createThumbButton(R.drawable.ic_mic, R.string.cd_start_dictation) {
+            onMicTapped()
         }
-        rightColumn.addView(primaryButton)
-        rightColumn.addView(enterButton)
+        backspaceButton = createThumbButton(R.drawable.ic_backspace, R.string.cd_backspace) {
+            // A key event, not deleteSurroundingText: it is the only variant
+            // that behaves correctly while a composing region is live.
+            sendDownUpKeyEvents(KeyEvent.KEYCODE_DEL)
+        }
+        enterButton = createThumbButton(R.drawable.ic_enter, R.string.cd_newline) {
+            insertNewline()
+        }
+
+        (keyboardButton.layoutParams as LinearLayout.LayoutParams).marginEnd = dp(THUMB_GAP_DP)
+        (backspaceButton.layoutParams as LinearLayout.LayoutParams).marginEnd = dp(THUMB_GAP_DP)
+        topRow.addView(keyboardButton)
+        topRow.addView(primaryButton)
+        bottomRow.addView(backspaceButton)
+        bottomRow.addView(enterButton)
+        rightColumn.addView(topRow)
+        rightColumn.addView(bottomRow)
         content.addView(rightColumn)
         root.addView(content)
 
@@ -225,6 +249,37 @@ class LiveTypeImeService : InputMethodService() {
         }
 
         return root
+    }
+
+    /** One row of the 2x2 thumb grid. */
+    private fun thumbRow(): LinearLayout = LinearLayout(this).apply {
+        orientation = LinearLayout.HORIZONTAL
+        layoutParams = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT,
+        )
+    }
+
+    private fun createThumbButton(
+        iconRes: Int,
+        contentDescriptionRes: Int,
+        onClick: () -> Unit,
+    ): ImageButton = ImageButton(this).apply {
+        setImageResource(iconRes)
+        setColorFilter(BUTTON_ICON_COLOR, PorterDuff.Mode.SRC_IN)
+        scaleType = ImageView.ScaleType.FIT_CENTER
+        setPadding(
+            dp(THUMB_ICON_PADDING_DP),
+            dp(THUMB_ICON_PADDING_DP),
+            dp(THUMB_ICON_PADDING_DP),
+            dp(THUMB_ICON_PADDING_DP),
+        )
+        contentDescription = getString(contentDescriptionRes)
+        setOnClickListener { onClick() }
+        layoutParams = LinearLayout.LayoutParams(
+            dp(THUMB_BUTTON_DP),
+            dp(THUMB_BUTTON_DP),
+        )
     }
 
     override fun onWindowShown() {
@@ -253,19 +308,26 @@ class LiveTypeImeService : InputMethodService() {
     override fun onStartInputView(info: EditorInfo?, restarting: Boolean) {
         super.onStartInputView(info, restarting)
         activeEditorInfo = info
-        cancelDictation(clearComposingText = false)
 
         if (info != null && isPasswordField(info)) {
-            statusText.setText(R.string.status_password_field)
-            primaryButton.isEnabled = false
-        } else {
-            statusText.setText(R.string.status_ready)
-            primaryButton.isEnabled = true
+            // Never hold a live socket over a password field.
+            cancelDictation(clearComposingText = false)
+            setState(State.IDLE, getString(R.string.status_password_field))
+            return
         }
-        refreshButtonAlpha()
+        if (state == State.IDLE) {
+            // The previous field may have left the mic disabled.
+            primaryButton.isEnabled = true
+            refreshButtonAlpha()
+        }
+        // Deliberately no cancelDictation() here: this fires on every restart
+        // of the same field, and tearing the session down would throw away the
+        // socket we are trying to keep warm. onFinishInput owns the teardown.
+        prewarm()
     }
 
     override fun onFinishInput() {
+        // The keyboard is going away — do not leave a session lingering.
         cancelDictation(clearComposingText = false)
         activeEditorInfo = null
         super.onFinishInput()
@@ -275,6 +337,34 @@ class LiveTypeImeService : InputMethodService() {
         cancelDictation(clearComposingText = false)
         tokenExecutor.shutdownNow()
         super.onDestroy()
+    }
+
+    /**
+     * Opens the token + socket session as soon as the keyboard appears, so the
+     * mic tap only has to start the recorder. Silent on success and cheap to
+     * call: `onStartInputView` fires often, and anything but a cold [State.IDLE]
+     * with no live transcriber is left alone rather than duplicated.
+     */
+    private fun prewarm() {
+        if (state != State.IDLE || transcriber != null) return
+        val editorInfo = activeEditorInfo ?: return
+        if (isPasswordField(editorInfo)) return
+
+        val settings = AppSettings.load(this)
+        if (!settings.isConfigured) {
+            showError(getString(R.string.error_not_configured))
+            return
+        }
+        autoStartOnReady = false
+        openSession(settings)
+    }
+
+    private fun onMicTapped() {
+        when (state) {
+            State.RECORDING -> finishDictation()
+            State.FINISHING -> Unit
+            State.IDLE, State.CONNECTING, State.READY -> startDictation()
+        }
     }
 
     private fun startDictation() {
@@ -291,12 +381,29 @@ class LiveTypeImeService : InputMethodService() {
             return
         }
 
+        // Prewarmed socket already up: skip straight to the microphone.
+        if (state == State.READY && transcriber != null) {
+            beginRecording(generation)
+            return
+        }
+        // Tapped mid-connect. Do not restart the session — just remember that
+        // the user wants to record the moment it is ready.
+        if (state == State.CONNECTING) {
+            autoStartOnReady = true
+            return
+        }
+
         val settings = AppSettings.load(this)
         if (!settings.isConfigured) {
             showError(getString(R.string.error_not_configured))
             return
         }
+        autoStartOnReady = true
+        openSession(settings)
+    }
 
+    /** Fetch a token, then open the realtime socket. Shared by both entry points. */
+    private fun openSession(settings: LiveTypeSettings) {
         generation += 1
         val thisGeneration = generation
         partialTranscript = StringBuilder()
@@ -333,7 +440,13 @@ class LiveTypeImeService : InputMethodService() {
                     mainHandler.post {
                         if (thisGeneration != generation || state != State.CONNECTING) return@post
                         setIndicator(openAiIndicator, ConnectionState.OK)
-                        beginRecording(thisGeneration)
+                        if (autoStartOnReady) {
+                            autoStartOnReady = false
+                            beginRecording(thisGeneration)
+                        } else {
+                            // Prewarmed: socket is up, wait for the mic tap.
+                            setState(State.READY, getString(R.string.status_ready))
+                        }
                     }
                 }
 
@@ -411,6 +524,7 @@ class LiveTypeImeService : InputMethodService() {
 
     private fun completeSession(transcript: String, returnToPrevious: Boolean) {
         generation += 1
+        autoStartOnReady = false
         // After a mid-dictation Enter the head of the transcript is already in
         // the editor, so commit only what is still pending. The local delta
         // buffer — not the server transcript — is what the user actually saw.
@@ -447,6 +561,7 @@ class LiveTypeImeService : InputMethodService() {
 
     private fun cancelDictation(clearComposingText: Boolean) {
         generation += 1
+        autoStartOnReady = false
         recorder?.stop()
         recorder = null
         transcriber?.clear()
@@ -460,7 +575,8 @@ class LiveTypeImeService : InputMethodService() {
         partialTranscript = StringBuilder()
         committedChars = 0
         if (::statusText.isInitialized) {
-            setState(State.IDLE, getString(R.string.status_ready))
+            // The socket is gone, so the status must not claim readiness.
+            setState(State.IDLE, getString(R.string.status_not_connected))
             setConnectionStates(ConnectionState.IDLE, ConnectionState.IDLE)
         } else {
             state = State.IDLE
@@ -470,6 +586,7 @@ class LiveTypeImeService : InputMethodService() {
     private fun failSession(message: String) {
         Log.e(TAG, "Session failed: $message")
         generation += 1
+        autoStartOnReady = false
         recorder?.stop()
         recorder = null
         transcriber?.close()
@@ -506,11 +623,22 @@ class LiveTypeImeService : InputMethodService() {
             }
 
             State.CONNECTING -> {
+                // Stays tappable: a tap here is remembered by autoStartOnReady
+                // instead of being swallowed while the socket comes up.
                 primaryButton.setImageResource(R.drawable.ic_mic)
                 primaryButton.contentDescription = getString(R.string.cd_connecting)
-                primaryButton.isEnabled = false
+                primaryButton.isEnabled = true
                 cancelButton.isEnabled = true
                 settingsButton.isEnabled = false
+            }
+
+            State.READY -> {
+                primaryButton.setImageResource(R.drawable.ic_mic)
+                primaryButton.contentDescription = getString(R.string.cd_start_dictation)
+                primaryButton.isEnabled = true
+                cancelButton.isEnabled = false
+                settingsButton.isEnabled = true
+                enterButton.isEnabled = true
             }
 
             State.RECORDING -> {
@@ -538,8 +666,11 @@ class LiveTypeImeService : InputMethodService() {
 
     /** ImageButton does not fade its drawable on its own. */
     private fun refreshButtonAlpha() {
-        primaryButton.imageAlpha = if (primaryButton.isEnabled) 255 else 80
-        enterButton.imageAlpha = if (enterButton.isEnabled) 255 else 80
+        // Backspace and the keyboard switch are never disabled, but they go
+        // through the same path so the grid stays visually uniform.
+        for (button in listOf(primaryButton, enterButton, backspaceButton, keyboardButton)) {
+            button.imageAlpha = if (button.isEnabled) 255 else 80
+        }
     }
 
     private fun openSettings() {
@@ -701,8 +832,19 @@ class LiveTypeImeService : InputMethodService() {
     companion object {
         private const val TAG = "LiveTypeIme"
 
-        /** Square thumb targets on the right edge. */
-        private const val THUMB_BUTTON_DP = 104
+        /**
+         * Square thumb targets on the right edge, laid out 2x2.
+         *
+         * Width budget on a 411dp screen: 14 + 14 content padding, a 10dp gap
+         * to the left column and 88 + 8 + 88 for the grid leaves 189dp for the
+         * status/indicator column — enough for both indicators (30 + 14 + 30)
+         * and a readable status line.
+         */
+        private const val THUMB_BUTTON_DP = 88
+        private const val THUMB_GAP_DP = 8
+
+        /** Keeps the glyph the same fraction of the square as before. */
+        private const val THUMB_ICON_PADDING_DP = 25
 
         /** Status dots for the token worker and the OpenAI socket. */
         private const val INDICATOR_DP = 30

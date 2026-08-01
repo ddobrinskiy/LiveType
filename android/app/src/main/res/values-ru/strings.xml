@@ -5,6 +5,7 @@
 
     <!-- Keyboard status line -->
     <string name="status_ready">Готово к диктовке</string>
+    <string name="status_not_connected">Нет соединения — нажми микрофон</string>
     <string name="status_password_field">Запись отключена в поле пароля</string>
     <string name="status_getting_key">Получаю временный ключ…</string>
     <string name="status_connecting_openai">Подключаюсь к OpenAI…</string>
@@ -33,6 +34,7 @@
     <string name="cd_connecting">Подключение</string>
     <string name="cd_transcribing">Распознаю</string>
     <string name="cd_newline">Перенос на следующую строку</string>
+    <string name="cd_backspace">Удалить предыдущий символ</string>
 
     <!-- Connection indicators -->
     <string name="indicator_server">Сервер токенов</string>

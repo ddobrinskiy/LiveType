@@ -43,20 +43,20 @@ Last updated: 2026-08-01.
 | # | Feature | Me | You | Confirmed | In main |
 |---|---|---|---|---|---|
 | 10 | Connection prewarms when the keyboard opens | device | | | yes |
-| 12 | Enter inserts a newline, never sends the message | partial | yes | **yes** | yes |
-| 13 | Enter stays active *during* dictation without duplicating text | build only | yes | **yes** | yes |
-| 14 | Backspace: hold to repeat, accelerating to whole words | build only | yes | **yes** | yes |
-| 15 | Auto-return to previous keyboard disabled via feature flag | build only | yes | **yes** | yes |
+| 11 | Enter inserts a newline, never sends the message | partial | yes | **yes** | yes |
+| 12 | Enter stays active *during* dictation without duplicating text | build only | yes | **yes** | yes |
+| 13 | Backspace: hold to repeat, accelerating to whole words | build only | yes | **yes** | yes |
+| 14 | Auto-return to previous keyboard disabled via feature flag | build only | yes | **yes** | yes |
 
 ## Reliability / cost
 
 | # | Feature | Me | You | Confirmed | In main |
 |---|---|---|---|---|---|
-| 16 | Silenced-mic detection (screen recorder, calls) | build only | yes | yes | yes |
-| 17 | Silenced-mic shown red + warning icon, auto-recovers | build only | | | yes |
-| 18 | Prewarm debounce + 8s grace + 5min ceiling | device — measured 6 open/close cycles → **0** extra token requests, 6 reuses | | | yes |
-| 19 | Fix: mic tap mid-connect + focus loss no longer records with the keyboard hidden | build only | | | yes |
-| 31 | Session survives a completed phrase: back to `READY`, indicators stay green, ceiling re-armed per phrase | device | yes | **yes** | yes |
+| 15 | Silenced-mic detection (screen recorder, calls) | build only | yes | yes | yes |
+| 16 | Silenced-mic shown red + warning icon, auto-recovers | build only | | | yes |
+| 17 | Prewarm debounce + 8s grace + 5min ceiling | device — measured 6 open/close cycles → **0** extra token requests, 6 reuses | | | yes |
+| 18 | Fix: mic tap mid-connect + focus loss no longer records with the keyboard hidden | build only | | | yes |
+| 19 | Session survives a completed phrase: back to `READY`, indicators stay green, ceiling re-armed per phrase | device | yes | **yes** | yes |
 
 ## Backend
 
@@ -76,24 +76,24 @@ Last updated: 2026-08-01.
 | 26 | Release cleartext HTTP forbidden; debug allows loopback only | partial — aapt2 on both APKs | — | | yes (release APK carries `base-config cleartextTrafficPermitted=false` and no `domain-config`; debug adds localhost / 127.0.0.1 / 10.0.2.2) |
 | 27 | `lintVitalRelease` passes, release APK builds | partial — `assembleRelease` succeeds | — | | yes (re-ran `assembleDebug assembleRelease lintVitalRelease` — BUILD SUCCESSFUL, two deprecation warnings only) |
 | 28 | CI workflow (worker tests + Android build) | no — never run on a real runner | — | | yes (file tracked at `.github/workflows/ci.yml`, both jobs present — still never executed, see gap 4) |
-| 31 | Debug build bakes in `data/keywords.txt`; release gets `""` | partial — generated `BuildConfig` for both types, plus a probe term grepped in both APKs (debug 1, release 0). **Never seen on a phone** — same clean-install gap as #24 | | | yes |
-| 32 | Missing `data/keywords.txt` does not break the build | partial — file moved away, `assembleDebug` green, `DEFAULT_KEYWORDS = ""` | — | | yes (`providers.fileContents(...).asText.orNull ?. … .orEmpty()` — the null-safe chain is intact; not re-tested by moving the user's file) |
-| 33 | `age` round-trip of the keyword list | partial — encrypted, then decrypted with the real identity, `diff` clean | — | | yes (re-decrypted `data/keywords.txt.age` at HEAD with the real identity: byte-identical to `data/keywords.txt`) |
+| 29 | Debug build bakes in `data/keywords.txt`; release gets `""` | partial — generated `BuildConfig` for both types, plus a probe term grepped in both APKs (debug 1, release 0). **Never seen on a phone** — same clean-install gap as #24 | | | yes |
+| 30 | Missing `data/keywords.txt` does not break the build | partial — file moved away, `assembleDebug` green, `DEFAULT_KEYWORDS = ""` | — | | yes (`providers.fileContents(...).asText.orNull ?. … .orEmpty()` — the null-safe chain is intact; not re-tested by moving the user's file) |
+| 31 | `age` round-trip of the keyword list | partial — encrypted, then decrypted with the real identity, `diff` clean | — | | yes (re-decrypted `data/keywords.txt.age` at HEAD with the real identity: byte-identical to `data/keywords.txt`) |
 
 ## In progress
 
 | # | Feature | Me | You | Confirmed | In main |
 |---|---|---|---|---|---|
-| 29 | Billing UI in settings | device | yes | **yes** — live figures once D1 was provisioned | yes (`seconds`, `sessions` and `price.unit` are parsed from the worker but not rendered; money is) |
-| 30 | Paste button for the last phrase, 5-minute expiry | build only | yes | **yes** | yes |
-| 31 | Custom dictionary baked into debug builds (45 terms) | device — verified on a clean install, 45 terms one per line | | | yes (decoded `BuildConfig.DEFAULT_KEYWORDS` from the debug build: 45 terms, exactly matching `data/keywords.txt` after comment/blank/duplicate filtering) |
-| 32 | Debug build self-configures endpoint + secret | device — confirmed after `pm clear` | | | yes |
-| 33 | `data/keywords.txt.age`, age round-trip | partial — encrypt/decrypt verified byte-for-byte; plaintext confirmed untrackable | — | | yes |
-| 34 | Endpoint dropdown in debug: prod (disabled) / dev / custom | build only — release absence proven in the dex; the greyed prod row and the locked field not seen on device | yes | **yes** | yes |
-| 35 | Money rounded to three decimals, tiny amounts as `<$0.001` | partial — checked across realistic amounts in en_US and ru_RU | | | yes |
-| 38 | Silenced mic also reddens the record button; shorter `status_mic_in_use` | build only — needs re-verification on device, including that the button returns to its normal tint when the mic comes back | | | yes |
-| 39 | Max recording length: 1–20 min dropdown (default 3), auto-stop finishes the phrase like the stop button | build only — `assembleDebug` + `lintDebug` + `lintVitalRelease` clean; never waited out a real ceiling on the phone | | | yes |
-| 40 | Keyboard ~30% taller (176dp → 230dp of content) via vertical-only growth: keys 72×96dp, row gap 10dp, content padding 14dp | build only — arithmetic in the `THUMB_BUTTON_HEIGHT_DP` KDoc, `assembleDebug` + `lintDebug` green; not seen on a phone | | | no | yes |
+| 32 | Billing UI in settings | device | yes | **yes** — live figures once D1 was provisioned | yes (`seconds`, `sessions` and `price.unit` are parsed from the worker but not rendered; money is) |
+| 33 | Paste button for the last phrase, 5-minute expiry | build only | yes | **yes** | yes |
+| 34 | Custom dictionary baked into debug builds (45 terms) | device — verified on a clean install, 45 terms one per line | | | yes (decoded `BuildConfig.DEFAULT_KEYWORDS` from the debug build: 45 terms, exactly matching `data/keywords.txt` after comment/blank/duplicate filtering) |
+| 35 | Debug build self-configures endpoint + secret | device — confirmed after `pm clear` | | | yes |
+| 36 | `data/keywords.txt.age`, age round-trip | partial — encrypt/decrypt verified byte-for-byte; plaintext confirmed untrackable | — | | yes |
+| 37 | Endpoint dropdown in debug: prod (disabled) / dev / custom | build only — release absence proven in the dex; the greyed prod row and the locked field not seen on device | yes | **yes** | yes |
+| 38 | Money rounded to three decimals, tiny amounts as `<$0.001` | partial — checked across realistic amounts in en_US and ru_RU | | | yes |
+| 39 | Silenced mic also reddens the record button; shorter `status_mic_in_use` | build only — needs re-verification on device, including that the button returns to its normal tint when the mic comes back | | | yes |
+| 40 | Max recording length: 1–20 min dropdown (default 3), auto-stop finishes the phrase like the stop button | build only — `assembleDebug` + `lintDebug` + `lintVitalRelease` clean; never waited out a real ceiling on the phone | | | yes |
+| 41 | Keyboard ~30% taller (176dp → 230dp of content) via vertical-only growth: keys 72×96dp, row gap 10dp, content padding 14dp | build only — arithmetic in the `THUMB_BUTTON_HEIGHT_DP` KDoc, `assembleDebug` + `lintDebug` green; not seen on a phone | | | no | yes |
 
 ---
 
@@ -101,8 +101,8 @@ Last updated: 2026-08-01.
 
 | # | Feature | Me | You | Confirmed | In main |
 |---|---|---|---|---|---|
-| 36 | Worker deployed to Cloudflare (`wrangler deploy` + remote D1) | no — never deployed; `wrangler.jsonc` still has the placeholder `database_id` | | | no |
-| 37 | Dictation works with **no local worker**: `adb reverse` removed, cable out, endpoint pointing at `https://….workers.dev/token`, over mobile data | no | | | no |
+| 42 | Worker deployed to Cloudflare (`wrangler deploy` + remote D1) | no — never deployed; `wrangler.jsonc` still has the placeholder `database_id` | | | no |
+| 43 | Dictation works with **no local worker**: `adb reverse` removed, cable out, endpoint pointing at `https://….workers.dev/token`, over mobile data | no | | | no |
 
 Row 37 is the one that actually proves it. Deploying alone is not enough — with
 the tunnel still up the phone can keep hitting localhost and look fine.

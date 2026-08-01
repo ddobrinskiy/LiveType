@@ -199,14 +199,29 @@ class LiveTypeImeService : InputMethodService() {
         // of competing with it.
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            setPadding(dp(14), dp(CONTENT_PADDING_V_DP), dp(14), dp(CONTENT_PADDING_V_DP))
-            // The indicator row hangs 6dp past the left column's edge on
-            // purpose (see the row below). Both this view and the column would
-            // otherwise clip that overhang away — a ViewGroup clips a child to
-            // its own padding box whenever clipChildren and clipToPadding are
-            // both on, and the loss would land squarely on the connecting
-            // spinner's ring. Nothing else here draws outside its bounds, so
-            // turning the clip off costs nothing.
+            // Asymmetric on purpose, and this is the whole of the optical
+            // alignment trick — see [INDICATOR_GLYPH_INSET_DP]. An indicator's
+            // glyph is centred inside a 48dp touch box, so it starts one inset
+            // in from that box's left edge. Rather than drag the box out past
+            // the column (a negative margin, which is *drawn* but never
+            // *touched* — Android does not dispatch to the part of a child
+            // outside its parent's bounds), the whole left padding is short by
+            // exactly one inset and the two views that must line up with the
+            // glyph — the status text and the action row — put it back as a
+            // start margin. Every view stays strictly inside its parent, so
+            // the 48dp targets are live edge to edge.
+            setPadding(
+                dp(CONTENT_PADDING_H_DP - INDICATOR_GLYPH_INSET_DP),
+                dp(CONTENT_PADDING_V_DP),
+                dp(CONTENT_PADDING_H_DP),
+                dp(CONTENT_PADDING_V_DP),
+            )
+            // Belt and braces. Nothing draws outside its parent any more — the
+            // spinner ring's left edge lands [INDICATOR_BADGE_INSET_DP] inside
+            // this padding box, not past it — but a ViewGroup clips children to
+            // its padding box whenever clipChildren and clipToPadding are both
+            // on, and the ring is what that would eat first if the padding
+            // above were ever widened again. Nothing here needs the clip.
             clipChildren = false
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
@@ -221,8 +236,9 @@ class LiveTypeImeService : InputMethodService() {
         // those two anchors is deliberate — see [LEFT_COLUMN_GAP_DP].
         val leftColumn = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            // Same reason as on `content`: the indicator row starts 6dp to the
-            // left of this column's own edge.
+            // Same belt-and-braces as on `content`. The indicator row is a
+            // plain child of this column now, flush with its left edge and
+            // fully inside it; nothing overhangs and nothing can be clipped.
             clipChildren = false
             layoutParams = LinearLayout.LayoutParams(
                 0,
@@ -264,26 +280,22 @@ class LiveTypeImeService : InputMethodService() {
         // of the thumb grid and the eye reads one horizontal line across the
         // whole keyboard instead of finding the logos adrift in mid-column.
         //
-        // The negative start margin is optical alignment, not a fudge. Each
-        // indicator is an 18dp glyph centred inside a 30dp box, and the box is
-        // real — it is the spinner ring and the touch target — so the glyph
-        // sits (30 − 18) / 2 = 6dp inside its own left edge. Pulling the row out
-        // by exactly that much puts the *glyph*, which is the thing anyone
-        // actually sees, on the same left edge as the status text and the
-        // Cancel button. The row is MATCH_PARENT, so it grows by the same 6dp
-        // and its right edge stays flush with the column. The 6dp it hangs into
-        // is `content`'s own left padding, and it is visible only because
-        // `content` and `leftColumn` both have `clipChildren = false`.
+        // The row itself is flush with the column — no margins at all. It used
+        // to carry `marginStart = -6dp` to put the glyph rather than its box on
+        // the column's left edge; that overhang drew fine but was **dead to
+        // touch**, because a ViewGroup never dispatches a touch to the part of
+        // a child lying outside its own bounds, and it shrank an already small
+        // target to a 24dp strip with the glyph jammed against its left edge.
+        // The same optical result now comes from `content`'s short left
+        // padding — see the comment there — which leaves every view inside its
+        // parent and the whole 48dp box tappable.
         val indicators = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.START or Gravity.CENTER_VERTICAL
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
-                dp(INDICATOR_DP),
-            ).apply {
-                marginStart = -dp(INDICATOR_GLYPH_INSET_DP)
-                bottomMargin = dp(LEFT_COLUMN_GAP_DP)
-            }
+                dp(INDICATOR_TOUCH_DP),
+            ).apply { bottomMargin = dp(INDICATOR_ROW_GAP_DP) }
         }
         serverIndicator = createIndicator(
             R.drawable.ic_server,
@@ -293,8 +305,12 @@ class LiveTypeImeService : InputMethodService() {
             R.drawable.ic_openai,
             R.string.indicator_openai,
         )
+        // Derived, not measured by eye: what the user sees between the two
+        // logos is this margin *plus* the dead inset on the facing side of each
+        // box, so the box margin has to be the wanted optical gap less two
+        // insets — see [INDICATOR_PAIR_GAP_DP].
         (serverIndicator.container.layoutParams as LinearLayout.LayoutParams)
-            .marginEnd = dp(14)
+            .marginEnd = dp(INDICATOR_PAIR_GAP_DP - 2 * INDICATOR_GLYPH_INSET_DP)
         indicators.addView(serverIndicator.container)
         indicators.addView(openAiIndicator.container)
         // Eats the slack between the connection glyphs and the alarm slot, so
@@ -313,8 +329,10 @@ class LiveTypeImeService : InputMethodService() {
         // Weight 1, so it takes whatever the anchored rows above and below do
         // not: the text is top-aligned and grows downwards into that slack, and
         // the layout is identical whether it renders one line or four. No
-        // leading icon any more, so the first character sits on the column's
-        // left edge.
+        // leading icon any more, so the first character sits on the glyphs'
+        // left edge — which is one [INDICATOR_GLYPH_INSET_DP] in from the
+        // column, because `content` gave that inset away from its left padding
+        // so the indicator boxes could reach it without a negative margin.
         statusText = TextView(this).apply {
             // Honest default: nothing is connected until onStartInputView
             // prewarms and the socket reports ready.
@@ -326,7 +344,10 @@ class LiveTypeImeService : InputMethodService() {
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 0,
                 1f,
-            ).apply { bottomMargin = dp(LEFT_COLUMN_GAP_DP) }
+            ).apply {
+                marginStart = dp(INDICATOR_GLYPH_INSET_DP)
+                bottomMargin = dp(LEFT_COLUMN_GAP_DP)
+            }
         }
         leftColumn.addView(statusText)
 
@@ -335,7 +356,7 @@ class LiveTypeImeService : InputMethodService() {
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 dp(ACTION_ROW_HEIGHT_DP),
-            )
+            ).apply { marginStart = dp(INDICATOR_GLYPH_INSET_DP) }
         }
         cancelButton = Button(this).apply {
             setText(R.string.action_cancel)
@@ -714,6 +735,11 @@ class LiveTypeImeService : InputMethodService() {
         mainHandler.removeCallbacks(warmCeilingRunnable)
         mainHandler.postDelayed(warmCeilingRunnable, WARM_SESSION_MAX_MS)
         setState(State.CONNECTING, getString(R.string.status_getting_key))
+        // Honest about both legs: the token fetch has started, the socket has
+        // not been attempted at all yet. IDLE is now a quiet grey rather than
+        // the red `!` it used to render as, so this no longer claims OpenAI has
+        // failed for the whole time the token is in flight. [connectRealtime]
+        // takes the OpenAI one to LOADING the moment it is really connecting.
         setConnectionStates(ConnectionState.LOADING, ConnectionState.IDLE)
 
         tokenExecutor.execute {
@@ -734,6 +760,27 @@ class LiveTypeImeService : InputMethodService() {
         }
     }
 
+    /**
+     * Opens the OpenAI socket, which is the **slow** leg of connecting, and is
+     * therefore the one place that has to say so.
+     *
+     * Until this method existed in its current form the OpenAI indicator went
+     * [ConnectionState.IDLE] → [ConnectionState.OK] and never passed through
+     * [ConnectionState.LOADING], so the whole of that slow leg was rendered as
+     * whatever IDLE happened to look like — which, before [setIndicator] was
+     * corrected, was a red `!`. The user watched a failure turn green.
+     *
+     * **A reused session cannot flash a spurious spinner**, and it is worth
+     * being explicit about why, because that is the constraint that decides
+     * where the LOADING write belongs. This method is reached from exactly one
+     * place — the token-success branch of [openSession] — and [openSession] is
+     * only ever called from [prewarm] and [startDictation], both of which bail
+     * out unless the state is a cold [State.IDLE] with no live transcriber.
+     * Every reuse path instead writes OK directly and never comes through here:
+     * `onStartInputView`'s READY branch, [completeSession] and [abandonPhrase].
+     * So "a socket is being opened" and "this method is running" are the same
+     * event, and the spinner cannot outlive or precede one.
+     */
     private fun connectRealtime(
         clientSecret: String,
         settings: LiveTypeSettings,
@@ -822,6 +869,11 @@ class LiveTypeImeService : InputMethodService() {
             },
         )
         transcriber = realtime
+        // Before connect(), not after: every listener callback above hops
+        // through mainHandler and we are on the main thread, so nothing can
+        // overtake this line — but ordering it this way means the indicator is
+        // never behind the socket even if that ever stops being true.
+        setIndicator(openAiIndicator, ConnectionState.LOADING)
         realtime.connect(clientSecret)
         setState(State.CONNECTING, getString(R.string.status_connecting_openai))
     }
@@ -1377,9 +1429,15 @@ class LiveTypeImeService : InputMethodService() {
     }
 
     /**
-     * A tinted glyph with a spinner ring drawn over it while connecting and a
-     * red "!" badge whenever the connection is not up. Tapping it reports the
+     * A tinted glyph with a spinner ring drawn around it while connecting and a
+     * red "!" badge when the connection has failed. Tapping it reports the
      * current state.
+     *
+     * Three concentric sizes, all derived from each other — see
+     * [INDICATOR_TOUCH_DP]: the [container] is the touch target and is the only
+     * one big enough to hit reliably, the [spinner] ring is drawn inside it, and
+     * the [icon] is the smallest of the three. Only the glyph is meant to be
+     * read as "the indicator"; the rest is ring and slop.
      */
     private class Indicator(
         val container: FrameLayout,
@@ -1396,13 +1454,18 @@ class LiveTypeImeService : InputMethodService() {
     private fun createIndicator(iconRes: Int, labelRes: Int): Indicator {
         val icon = ImageView(this).apply {
             setImageResource(iconRes)
-            contentDescription = getString(labelRes)
+            // The clickable container below carries the label, so that the
+            // accessibility node the user can actually activate is the one with
+            // a name. Labelling the glyph too would announce it twice.
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
             layoutParams = FrameLayout.LayoutParams(
                 dp(INDICATOR_ICON_DP),
                 dp(INDICATOR_ICON_DP),
                 Gravity.CENTER,
             )
         }
+        // Concentric with the glyph and smaller than the touch box, so the
+        // ring reads as belonging to the logo rather than to the hit area.
         val spinner = ProgressBar(this).apply {
             isIndeterminate = true
             visibility = View.GONE
@@ -1411,26 +1474,36 @@ class LiveTypeImeService : InputMethodService() {
                 PorterDuff.Mode.SRC_IN,
             )
             layoutParams = FrameLayout.LayoutParams(
-                dp(INDICATOR_DP),
-                dp(INDICATOR_DP),
+                dp(INDICATOR_RING_DP),
+                dp(INDICATOR_RING_DP),
                 Gravity.CENTER,
             )
         }
+        // Pinned to the ring's top-right corner, not the touch box's: the box
+        // is deliberately larger than anything drawn in it, so a badge in its
+        // own corner would float clear of the glyph it is marking.
         val badge = TextView(this).apply {
             text = "!"
-            textSize = 15f
+            textSize = INDICATOR_BADGE_SP
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(INDICATOR_ERROR)
             layoutParams = FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.WRAP_CONTENT,
                 FrameLayout.LayoutParams.WRAP_CONTENT,
                 Gravity.TOP or Gravity.END,
-            )
+            ).apply {
+                topMargin = dp(INDICATOR_BADGE_INSET_DP)
+                marginEnd = dp(INDICATOR_BADGE_INSET_DP)
+            }
         }
         val container = FrameLayout(this).apply {
-            layoutParams = LinearLayout.LayoutParams(dp(INDICATOR_DP), dp(INDICATOR_DP))
+            layoutParams =
+                LinearLayout.LayoutParams(dp(INDICATOR_TOUCH_DP), dp(INDICATOR_TOUCH_DP))
             isClickable = true
             isFocusable = true
+            // The label belongs on the node that is actually clickable, which
+            // is this one and not the glyph inside it.
+            contentDescription = getString(labelRes)
             addView(icon)
             addView(spinner)
             addView(badge)
@@ -1441,28 +1514,52 @@ class LiveTypeImeService : InputMethodService() {
         return indicator
     }
 
+    /**
+     * The four states, and why [ConnectionState.IDLE] is no longer red.
+     *
+     * It used to share [ConnectionState.ERROR]'s treatment — red glyph plus the
+     * `!` badge — on the reasoning that "not connected yet" and "failed" both
+     * read as a problem. That reasoning predates prewarm. Back then IDLE was a
+     * resting state the user sat in until they tapped the mic, so painting it
+     * as a problem was at least arguable. It is not any more:
+     *
+     * - The connect sequence is now LOADING → OK on both indicators, so IDLE is
+     *   not something a user watches; it is the sub-second gap before prewarm
+     *   fires, and the state left behind by the *deliberate*, non-failing
+     *   teardowns — grace expiry, the idle ceiling, a password field.
+     *   [tearDownIdleSession] says in as many words that nothing failed and
+     *   there is to be no red; the indicators were contradicting it.
+     * - Red plus `!` now means exactly one thing, which is what makes it worth
+     *   anything: a connection that was attempted and did not come up.
+     *
+     * So IDLE gets [INDICATOR_IDLE] — a muted slate that is plainly neither the
+     * green of a live socket nor an alarm — and no badge. That constant existed
+     * all along and had never been read; this is what it was for.
+     */
     private fun setIndicator(indicator: Indicator, connection: ConnectionState) {
         indicator.connection = connection
-        // "Not connected yet" and "failed" both read as a problem to the user,
-        // so both get the red treatment plus the badge.
-        val faulty =
-            connection == ConnectionState.IDLE || connection == ConnectionState.ERROR
         val tint = when (connection) {
+            ConnectionState.IDLE -> INDICATOR_IDLE
             ConnectionState.LOADING -> INDICATOR_LOADING
             ConnectionState.OK -> INDICATOR_OK
-            else -> INDICATOR_ERROR
+            ConnectionState.ERROR -> INDICATOR_ERROR
         }
         indicator.icon.setColorFilter(tint, PorterDuff.Mode.SRC_IN)
         indicator.spinner.visibility =
             if (connection == ConnectionState.LOADING) View.VISIBLE else View.GONE
-        indicator.badge.visibility = if (faulty) View.VISIBLE else View.GONE
+        indicator.badge.visibility =
+            if (connection == ConnectionState.ERROR) View.VISIBLE else View.GONE
     }
 
     private fun showConnectionStatus(indicator: Indicator) {
         val statusRes = when (indicator.connection) {
             ConnectionState.OK -> R.string.connection_ok
             ConnectionState.LOADING -> R.string.connection_loading
-            else -> R.string.connection_error
+            // Not an error any more — see [setIndicator]. Reuses the status
+            // line's own wording rather than inventing a second phrasing for
+            // the same fact.
+            ConnectionState.IDLE -> R.string.status_not_connected
+            ConnectionState.ERROR -> R.string.connection_error
         }
         val message =
             getString(R.string.connection_toast, getString(indicator.labelRes), getString(statusRes))
@@ -1653,9 +1750,18 @@ class LiveTypeImeService : InputMethodService() {
          * | 64dp | 3×64 + 2×8 = 208 | 165dp, but at the accessibility floor |
          *
          * At 72dp the left column keeps 141dp, which covers:
-         * - the indicator row: 30 + 14 + 30 = 74dp of connection glyphs at the
-         *   start, a 20dp alarm slot ([WARNING_ICON_DP]) pinned to the end, and
-         *   47dp of slack between them holding the two apart;
+         * - the indicator row. It is the one thing wider than 141dp: because
+         *   `content` shortens its left padding by [INDICATOR_GLYPH_INSET_DP]
+         *   (11dp) so the glyphs can reach their optical left edge, the column
+         *   is really 152dp and everything else in it is inset by that 11 to
+         *   land back on 141. The row spends its 152dp as two 48dp touch boxes
+         *   4dp apart (48 + 4 + 48 = 100 — the 4 is [INDICATOR_PAIR_GAP_DP]
+         *   less the two boxes' facing insets, so what the eye sees between the
+         *   glyphs is 26dp), a 26dp alarm slot ([WARNING_ICON_DP]) pinned to
+         *   the end, and 26dp of slack between them. In glyph terms, which is
+         *   what anyone judges: logo, 26dp, logo, 37dp, alarm — the alarm is
+         *   further from the pair than the pair are from each other, which is
+         *   the whole reason it sits at the far end;
          * - the status line: the **whole** 141dp. The alarm used to sit in this
          *   row and take 18 + 6 = 24dp off it permanently; moving it up into
          *   the indicator row bought the text back that gutter and put its
@@ -1727,18 +1833,24 @@ class LiveTypeImeService : InputMethodService() {
          *
          *   | | dp |
          *   |---|---|
-         *   | indicator row ([INDICATOR_DP]), top-anchored to the grid | 30 |
-         *   | gap ([LEFT_COLUMN_GAP_DP]) | 12 |
-         *   | status text, weight 1 — takes what is left | **107** |
+         *   | indicator row ([INDICATOR_TOUCH_DP]), top-anchored to the grid | 48 |
+         *   | gap ([INDICATOR_ROW_GAP_DP]) | 6 |
+         *   | status text, weight 1 — takes what is left | **95** |
          *   | gap ([LEFT_COLUMN_GAP_DP]) | 12 |
          *   | Cancel / Settings ([ACTION_ROW_HEIGHT_DP]), bottom-anchored | 72 |
          *   | **total** | **233** |
          *
-         *   107dp holds five lines of 15sp status text (≈18dp each) and four
-         *   even at a 1.3 font scale, so the longest Russian strings —
-         *   `status_listening` and `status_stopped_time_limit` — never push the
-         *   buttons and never move them: the slack lives *inside* the weight-1
-         *   text view, which is why one line and four lay out identically.
+         *   The indicator row grew 30 → 48 to give the two glyphs a real touch
+         *   target, and the status text paid 12dp of that; the other 6 came out
+         *   of the gap below the row, which the taller box more than replaces —
+         *   see [INDICATOR_ROW_GAP_DP]. 95dp still holds five lines of 15sp
+         *   status text (≈18dp each) and four even at a 1.3 font scale, which
+         *   is the guarantee that matters: the longest Russian strings —
+         *   `status_listening`, `status_stopped_time_limit` and
+         *   `error_no_mic_permission`, all ~50 characters at ~18 per line —
+         *   wrap to three, so they never push the buttons and never move them.
+         *   The slack lives *inside* the weight-1 text view, which is why one
+         *   line and four lay out identically.
          * - The 64dp accessibility floor is measured on the smaller dimension,
          *   which is still the 72dp width.
          */
@@ -1752,6 +1864,19 @@ class LiveTypeImeService : InputMethodService() {
 
         /** Top and bottom padding of the content block. Also free. */
         private const val CONTENT_PADDING_V_DP = 14
+
+        /**
+         * Left and right padding of the content block — the keyboard's own
+         * margin against the screen edges, and part of the width budget in
+         * [THUMB_BUTTON_DP].
+         *
+         * The *left* side is applied one [INDICATOR_GLYPH_INSET_DP] short of
+         * this, so the indicator boxes can reach the glyph's optical left edge
+         * without hanging outside their parent; the status text and the action
+         * row add that inset back as a start margin, so nothing but the
+         * indicator row notices. See the padding comment in `onCreateInputView`.
+         */
+        private const val CONTENT_PADDING_H_DP = 14
 
         /**
          * Empty space below the whole content block — status column and thumb
@@ -1787,31 +1912,125 @@ class LiveTypeImeService : InputMethodService() {
         private const val ACTION_TEXT_MIN_SP = 10
         private const val ACTION_TEXT_MAX_SP = 14
 
-        /** Status dots for the token worker and the OpenAI socket. */
-        private const val INDICATOR_DP = 30
-        private const val INDICATOR_ICON_DP = 18
-
         /**
-         * How far an indicator's glyph sits inside its own box, i.e. exactly
-         * `(INDICATOR_DP - INDICATOR_ICON_DP) / 2`. The indicator row is pulled
-         * out by this much so the glyph — not the invisible 30dp box around it —
-         * shares a left edge with the status text and the Cancel button.
+         * The indicators' outer box: the touch target, and the only one of the
+         * three sizes below that is about the finger rather than the eye.
+         *
+         * 48dp is Material's minimum touch target and it is a floor, not a
+         * preference. The box used to be 30dp and doubled as the spinner ring,
+         * and the row was dragged 6dp left of its column so the glyph would
+         * line up with the text — which put 6dp of that already-small target
+         * outside the parent's bounds, where Android draws but does not
+         * dispatch touches. The live area was a 24dp strip with the glyph
+         * pressed against its left edge, so a tap aimed at the middle of the
+         * logo and landing a couple of millimetres low-left hit nothing at all,
+         * and the status toast looked broken. Separating "how big is it to
+         * touch" from "how big is it to look at" fixes that permanently: the
+         * box is now bigger than anything drawn inside it, and it sits wholly
+         * inside its parent — see the padding comment in `onCreateInputView`.
          */
-        private const val INDICATOR_GLYPH_INSET_DP = (INDICATOR_DP - INDICATOR_ICON_DP) / 2
+        private const val INDICATOR_TOUCH_DP = 48
 
         /**
-         * Alarm glyph at the end of the indicator row. 20dp rather than the 18
-         * it was beside the text: it no longer has 15sp lettering next to it to
-         * take its scale from, and it now has to hold the far end of a 141dp
-         * row against two 30dp connection glyphs.
+         * The spinner ring, concentric with the glyph. Keeps the same 6dp of
+         * clear air around the glyph the 30/18 pair had — `(38 − 26) / 2` — so
+         * the ring still reads as circling the logo rather than the hit box.
          */
-        private const val WARNING_ICON_DP = 20
+        private const val INDICATOR_RING_DP = 38
 
         /**
-         * The single gap used twice in the status column: indicators → status
-         * text, and status text → action row. Two anchored rows, one elastic
-         * block between them, one spacing value — see the table on
-         * [THUMB_BUTTON_HEIGHT_DP].
+         * The glyph itself: the thing the user actually calls "the indicator".
+         *
+         * 18dp → 26dp, +44%, because at 18dp in the reworked left column the
+         * two logos read as specks. It is still the smallest of the three
+         * concentric sizes, which is the point — growing the glyph did not have
+         * to shrink the ring's clearance or the touch target.
+         */
+        private const val INDICATOR_ICON_DP = 26
+
+        /**
+         * How far an indicator's glyph sits inside its own touch box, i.e.
+         * exactly `(INDICATOR_TOUCH_DP - INDICATOR_ICON_DP) / 2`.
+         *
+         * This is the number the whole left column is aligned on. The glyph —
+         * not the invisible box around it — has to share a left edge with the
+         * status text and the Cancel button, and it starts one inset in from
+         * its box. Rather than pull the box out of the column by that much
+         * (drawn, but dead to touch), `content` gives the inset away from its
+         * *left padding* and the status text and action row take it back as a
+         * start margin. Net effect on those two: nothing moves. Net effect on
+         * the indicator row: it reaches one inset further left than the rest of
+         * the column while staying strictly inside its parent.
+         *
+         * Consequence to respect when resizing: `CONTENT_PADDING_H_DP` must
+         * stay larger than this, or the row runs off the screen edge.
+         */
+        private const val INDICATOR_GLYPH_INSET_DP =
+            (INDICATOR_TOUCH_DP - INDICATOR_ICON_DP) / 2
+
+        /**
+         * How far the ring sits inside the touch box,
+         * `(INDICATOR_TOUCH_DP - INDICATOR_RING_DP) / 2`. Also where the `!`
+         * badge is pinned, so the badge marks the *ring's* top-right corner
+         * rather than floating in the corner of an oversized invisible box.
+         */
+        private const val INDICATOR_BADGE_INSET_DP =
+            (INDICATOR_TOUCH_DP - INDICATOR_RING_DP) / 2
+
+        /**
+         * Clear space the eye sees **between the two glyphs**, which is what
+         * anyone is actually judging — not the margin between their boxes.
+         *
+         * The boxes overhang the glyphs by [INDICATOR_GLYPH_INSET_DP] on each
+         * facing side, so the margin actually set on the first container is
+         * this less two insets. Stated as the optical figure because that is
+         * the one that has to stay put when the sizes change: at 30dp boxes it
+         * was 14 + 6 + 6 = 26dp, and it is 26dp now.
+         */
+        private const val INDICATOR_PAIR_GAP_DP = 26
+
+        /**
+         * Bottom margin of the indicator row, and deliberately *not*
+         * [LEFT_COLUMN_GAP_DP].
+         *
+         * The 48dp box already contributes [INDICATOR_GLYPH_INSET_DP] of empty
+         * space below the glyph, so the gap the eye sees between the logos and
+         * the status text is 11 + 6 = 17dp — near enough the 6 + 12 = 18dp it
+         * was when a 30dp box sat above a 12dp margin. Using the shared gap
+         * here instead would read as 23dp and cost the status text another 6dp
+         * of height for a space nobody asked for.
+         */
+        private const val INDICATOR_ROW_GAP_DP = 6
+
+        /**
+         * The `!` badge, in sp. Up from 15 with the glyph it annotates: at the
+         * old size against a 26dp logo it read as a stray punctuation mark. It
+         * scales with the user's font setting, which is fine — at 1.3 it is
+         * ~27dp tall inside a 48dp box, so it still cannot be clipped.
+         */
+        private const val INDICATOR_BADGE_SP = 18f
+
+        /**
+         * Alarm glyph at the end of the indicator row. Now exactly the size of
+         * the connection glyphs it shares that row with.
+         *
+         * It was 20dp against 18dp logos — a deliberate nudge upwards when it
+         * had to hold the far end of the row on its own. At 26dp logos that
+         * relationship inverts and it would be the runt of three glyphs on one
+         * line; matching them makes the row read as a single line of icons,
+         * which is what it is, and 26 is still 30% larger than it was.
+         */
+        private const val WARNING_ICON_DP = 26
+
+        /**
+         * The gap below the status text, above the action row — see the table
+         * on [THUMB_BUTTON_HEIGHT_DP].
+         *
+         * It used to be the single gap used at both ends of the status text.
+         * The indicator row above now carries its own, smaller
+         * [INDICATOR_ROW_GAP_DP], because its 48dp touch box already supplies
+         * more empty space under the glyph than the 30dp one did; the two
+         * numbers differ so the two *optical* gaps can stay the same.
          */
         private const val LEFT_COLUMN_GAP_DP = 12
 
@@ -1829,7 +2048,7 @@ class LiveTypeImeService : InputMethodService() {
          * rather than on two arbitrary numbers.
          *
          * It costs the status text 20dp of the height it was never using; the
-         * table on [THUMB_BUTTON_HEIGHT_DP] shows the 107dp that remains.
+         * table on [THUMB_BUTTON_HEIGHT_DP] shows the 95dp that remains.
          */
         private const val ACTION_ROW_HEIGHT_DP = 72
 
@@ -1844,7 +2063,20 @@ class LiveTypeImeService : InputMethodService() {
          */
         private val ERROR_COLOR = Color.rgb(160, 40, 40)
 
-        private val INDICATOR_IDLE = Color.parseColor("#9AAAB0")
+        /**
+         * "Not connected, and nothing has been tried yet" — the quietest of the
+         * four indicator colours, and the only one that is not saying anything
+         * happened. See [setIndicator] for why IDLE stopped borrowing
+         * [INDICATOR_ERROR].
+         *
+         * Darkened from the `#9AAAB0` this constant held while it was never
+         * read: that measured **2.0:1** against the `#E0EAEC` background, well
+         * under the 3:1 a glyph carrying meaning needs, and a state indicator
+         * nobody can see is not a state indicator. This measures 3.2:1 — still
+         * the most recessive of the four, because it is a desaturated slate in
+         * the background's own hue family while OK and ERROR are saturated.
+         */
+        private val INDICATOR_IDLE = Color.parseColor("#74848B")
         private val INDICATOR_LOADING = Color.parseColor("#33474D")
         private val INDICATOR_OK = Color.parseColor("#1E9E5A")
         private val INDICATOR_ERROR = Color.parseColor("#C0392B")

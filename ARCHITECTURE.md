@@ -199,8 +199,45 @@ Every other caller of `cancelDictation` is unchanged.
 
 `status_ready` is written in exactly one place — when the socket is actually
 open. Before that the line says "not connected", then reports each connection
-stage. Two indicators (token server, OpenAI) show red-with-`!` when down, a
-spinner while connecting, green when up, and report their state on tap.
+stage. Two indicators (token server, OpenAI) report their state on tap and show
+**four** distinct things, one per state:
+
+| state | glyph | ring | `!` badge | means |
+|---|---|---|---|---|
+| `IDLE` | muted slate | — | — | not connected, and nothing has been tried |
+| `LOADING` | dark | spinning | — | connecting *right now* |
+| `OK` | green | — | — | up |
+| `ERROR` | red | — | yes | tried, and it did not come up |
+
+The same rule as the status line, applied to a glyph. Two bugs had to be fixed
+before it was true, and they were halves of one mistake:
+
+- **The OpenAI indicator never entered `LOADING`.** `openSession` set it to
+  `IDLE` and the only other writes were `OK` and `ERROR`, so the *slow* leg of
+  connecting had no representation at all. `connectRealtime` now sets it, and
+  can do so unconditionally because it is only reachable on the cold path —
+  every session-reuse path writes `OK` directly and never goes through it, so
+  a warm socket cannot flash a spinner it does not deserve.
+- **`IDLE` rendered as `ERROR`** — red glyph plus the `!` badge — on the
+  reasoning that "not connected yet" and "failed" both read as a problem. That
+  reasoning predates prewarm, when `IDLE` was a resting state the user sat in
+  until they tapped the mic. It is now a sub-second gap before prewarm fires,
+  plus the state left by the *deliberate* teardowns — grace expiry, the idle
+  ceiling, a password field — which `tearDownIdleSession` explicitly documents
+  as "nothing failed, so no red". Red-plus-`!` now means one thing only, which
+  is the whole of what makes it worth showing.
+
+Their combination was the visible defect: for the entire time the socket was
+coming up, the user watched what looked like a failure, which then turned green.
+
+The indicators are 26dp glyphs inside 48dp touch boxes — see
+`INDICATOR_TOUCH_DP`. The box being larger than anything drawn in it is
+deliberate and is the fix for a second regression: the box used to *be* the
+spinner ring at 30dp and the row was pulled 6dp left of its column so the glyph
+would align with the status text, which put part of the target outside its
+parent, where Android draws but does not dispatch touches. The optical
+alignment now comes from `content` shortening its left padding by the glyph's
+inset, so every view stays inside its parent.
 
 ### 3.6 A silenced microphone is a state, not a failure
 

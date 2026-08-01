@@ -26,6 +26,8 @@ data class LiveTypeSettings(
     val prompt: String,
     val keywords: List<String>,
     val returnToPreviousKeyboard: Boolean,
+    /** Which worker this endpoint came from. Debug-only affordance; see [EndpointMode]. */
+    val endpointMode: EndpointMode = EndpointMode.default(),
 ) {
     val isConfigured: Boolean
         get() = isAllowedTokenEndpoint(tokenEndpoint) && deviceSecret.isNotBlank()
@@ -57,6 +59,7 @@ object AppSettings {
     private const val PROMPT = "prompt"
     private const val KEYWORDS = "keywords"
     private const val RETURN_TO_PREVIOUS = "return_to_previous"
+    private const val ENDPOINT_MODE = "endpoint_mode"
 
     // Seeded from resources so the first run matches the device locale.
     fun load(context: Context): LiveTypeSettings {
@@ -94,6 +97,7 @@ object AppSettings {
                 .filter(String::isNotBlank)
                 .toList(),
             returnToPreviousKeyboard = preferences.getBoolean(RETURN_TO_PREVIOUS, true),
+            endpointMode = EndpointMode.from(preferences.getString(ENDPOINT_MODE, null)),
         )
     }
 
@@ -106,6 +110,7 @@ object AppSettings {
             .putString(PROMPT, settings.prompt.trim())
             .putString(KEYWORDS, settings.keywords.joinToString("\n"))
             .putBoolean(RETURN_TO_PREVIOUS, settings.returnToPreviousKeyboard)
+            .putString(ENDPOINT_MODE, settings.endpointMode.name)
             .apply()
     }
 }

@@ -85,6 +85,31 @@ class LiveTypeImeService : InputMethodService() {
     @Volatile
     private var generation = 0
 
+    /**
+     * Trailing-edge debounce for [prewarm]. Every [onStartInputView] reschedules
+     * it, so a burst of re-focus events collapses into a single connection
+     * attempt instead of one per event.
+     */
+    private val prewarmRunnable = Runnable { prewarm() }
+
+    /**
+     * Armed by [onFinishInput], disarmed by the next [onStartInputView]. This
+     * is what lets a warm socket survive brief focus churn.
+     */
+    private val graceTeardownRunnable = Runnable { tearDownIdleSession("grace-expired") }
+
+    /**
+     * Hard ceiling on a warm-but-unused session, armed in [openSession] and
+     * dropped in [beginRecording].
+     */
+    private val warmCeilingRunnable = Runnable {
+        // The user already tapped the mic and is waiting on this very socket;
+        // closing it here would swallow that tap. Let the connect finish or
+        // fail on its own.
+        if (autoStartOnReady) return@Runnable
+        tearDownIdleSession("idle-ceiling")
+    }
+
     override fun onCreateInputView(): View {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -205,7 +230,9 @@ class LiveTypeImeService : InputMethodService() {
             setText(R.string.action_cancel)
             isAllCaps = false
             isEnabled = false
-            setOnClickListener { cancelDictation(clearComposingText = true) }
+            setOnClickListener {
+                cancelDictation(clearComposingText = true, reason = "user-cancelled")
+            }
             layoutParams = LinearLayout.LayoutParams(0, dp(52), 1f).apply {
                 marginEnd = dp(6)
             }
@@ -240,8 +267,10 @@ class LiveTypeImeService : InputMethodService() {
             R.string.cd_previous_keyboard,
         ) {
             // Leaving the keyboard mid-session would strand the socket and the
-            // composing region, so tear the session down first.
-            cancelDictation(clearComposingText = false)
+            // composing region, so tear the session down first. No grace here:
+            // the user is deliberately walking away from LiveType.
+            mainHandler.removeCallbacks(prewarmRunnable)
+            cancelDictation(clearComposingText = false, reason = "keyboard-switched")
             switchToPreviousInputMethod()
         }
         primaryButton = createThumbButton(R.drawable.ic_mic, R.string.cd_start_dictation) {
@@ -343,9 +372,15 @@ class LiveTypeImeService : InputMethodService() {
         super.onStartInputView(info, restarting)
         activeEditorInfo = info
 
+        // Whatever happens below, the previous field's grace timer must not
+        // fire and close a socket we are about to hand to a new field.
+        mainHandler.removeCallbacks(graceTeardownRunnable)
+
         if (info != null && isPasswordField(info)) {
-            // Never hold a live socket over a password field.
-            cancelDictation(clearComposingText = false)
+            // Never hold a live socket over a password field, and never let a
+            // queued prewarm open one behind our back.
+            mainHandler.removeCallbacks(prewarmRunnable)
+            cancelDictation(clearComposingText = false, reason = "password-field")
             setState(State.IDLE, getString(R.string.status_password_field))
             return
         }
@@ -357,27 +392,81 @@ class LiveTypeImeService : InputMethodService() {
         // Deliberately no cancelDictation() here: this fires on every restart
         // of the same field, and tearing the session down would throw away the
         // socket we are trying to keep warm. onFinishInput owns the teardown.
-        prewarm()
+        if (state != State.IDLE || transcriber != null) {
+            // A session survived the churn (or the grace timer we just
+            // cancelled). Reuse it as it stands: no token, no socket, and no
+            // generation bump — see the note in [openSession].
+            Log.i(TAG, "Session reused (state=$state)")
+            if (state == State.READY) {
+                // The input view may have been rebuilt underneath us, in which
+                // case its status line still claims we are not connected.
+                setState(State.READY, getString(R.string.status_ready))
+                setConnectionStates(ConnectionState.OK, ConnectionState.OK)
+                if (autoStartOnReady) {
+                    // A mic tap that landed mid-connect and whose field went
+                    // away before the socket was up. The field is back, so
+                    // honour it now instead of dropping it.
+                    autoStartOnReady = false
+                    startDictation()
+                }
+            }
+            return
+        }
+        schedulePrewarm()
     }
 
     override fun onFinishInput() {
-        // The keyboard is going away — do not leave a session lingering.
-        cancelDictation(clearComposingText = false)
+        // A prewarm queued for a field that has already gone away would open a
+        // session nobody asked for.
+        mainHandler.removeCallbacks(prewarmRunnable)
+        when (state) {
+            // Nothing open: nothing to hold and nothing to close.
+            State.IDLE -> Unit
+
+            // Mid-dictation the editor is gone, so there is nowhere left to
+            // deliver the text. End it now rather than hold the mic open.
+            State.RECORDING, State.FINISHING ->
+                cancelDictation(clearComposingText = false, reason = "input-finished-mid-dictation")
+
+            // The expensive part — the token and the open socket — is exactly
+            // what the next field will need. Hold it briefly instead of paying
+            // for it again; [graceTeardownRunnable] closes it if no field comes.
+            State.CONNECTING, State.READY -> {
+                Log.i(TAG, "Input finished; holding warm session for ${TEARDOWN_GRACE_MS}ms")
+                mainHandler.postDelayed(graceTeardownRunnable, TEARDOWN_GRACE_MS)
+            }
+        }
         activeEditorInfo = null
         super.onFinishInput()
     }
 
     override fun onDestroy() {
-        cancelDictation(clearComposingText = false)
+        cancelDictation(clearComposingText = false, reason = "service-destroyed")
+        // cancelDictation drops the session timers; this also catches the
+        // delayed keyboard switch posted by completeSession. Nothing of ours
+        // may outlive the service.
+        mainHandler.removeCallbacksAndMessages(null)
         tokenExecutor.shutdownNow()
         super.onDestroy()
     }
 
     /**
-     * Opens the token + socket session as soon as the keyboard appears, so the
-     * mic tap only has to start the recorder. Silent on success and cheap to
-     * call: `onStartInputView` fires often, and anything but a cold [State.IDLE]
-     * with no live transcriber is left alone rather than duplicated.
+     * Debounced entry point for [prewarm]. `onStartInputView` fires in bursts —
+     * a messenger re-focuses its editor on every tap, scroll and keyboard
+     * animation — and connecting on the leading edge of each one costs a real
+     * (billed) Realtime session per event. Connecting on the trailing edge of
+     * the burst costs one.
+     */
+    private fun schedulePrewarm() {
+        mainHandler.removeCallbacks(prewarmRunnable)
+        mainHandler.postDelayed(prewarmRunnable, PREWARM_DEBOUNCE_MS)
+    }
+
+    /**
+     * Opens the token + socket session shortly after the keyboard appears, so
+     * the mic tap only has to start the recorder. Silent on success and cheap
+     * to call: anything but a cold [State.IDLE] with no live transcriber is
+     * left alone rather than duplicated.
      */
     private fun prewarm() {
         if (state != State.IDLE || transcriber != null) return
@@ -390,7 +479,19 @@ class LiveTypeImeService : InputMethodService() {
             return
         }
         autoStartOnReady = false
-        openSession(settings)
+        openSession(settings, reason = "prewarm")
+    }
+
+    /**
+     * Closes a warm-but-unused session and returns cleanly to [State.IDLE], so
+     * the next mic tap simply reconnects. Deliberately not a [failSession]:
+     * nothing failed, so there is no error status and no red text.
+     */
+    private fun tearDownIdleSession(reason: String) {
+        // Only ever touches a session nobody is using; recording and finishing
+        // own themselves.
+        if (state != State.CONNECTING && state != State.READY) return
+        cancelDictation(clearComposingText = false, reason = reason)
     }
 
     private fun onMicTapped() {
@@ -402,6 +503,11 @@ class LiveTypeImeService : InputMethodService() {
     }
 
     private fun startDictation() {
+        // A tap outranks the debounce timer. Drop the queued prewarm so this
+        // tap connects now instead of waiting for it — and so it cannot fire a
+        // second session behind the one we are about to open.
+        mainHandler.removeCallbacks(prewarmRunnable)
+
         val editorInfo = activeEditorInfo
         if (editorInfo == null || isPasswordField(editorInfo)) {
             showError(getString(R.string.error_field_unavailable))
@@ -433,15 +539,30 @@ class LiveTypeImeService : InputMethodService() {
             return
         }
         autoStartOnReady = true
-        openSession(settings)
+        openSession(settings, reason = "mic-tap")
     }
 
-    /** Fetch a token, then open the realtime socket. Shared by both entry points. */
-    private fun openSession(settings: LiveTypeSettings) {
+    /**
+     * Fetch a token, then open the realtime socket. Shared by both entry points.
+     *
+     * This is the only place a [RealtimeTranscriber] is created, and therefore
+     * the only place [generation] is bumped on the way up: the bump belongs to
+     * the lifetime of the transcriber object, whose listener captures the value
+     * at construction. Teardown bumps it again to orphan those callbacks.
+     * Reusing a live session creates and destroys nothing, so it must not bump
+     * — doing so would leave the socket open but every one of its callbacks
+     * silently discarded.
+     */
+    private fun openSession(settings: LiveTypeSettings, reason: String) {
+        Log.i(TAG, "Session opening ($reason)")
         generation += 1
         val thisGeneration = generation
         partialTranscript = StringBuilder()
         committedChars = 0
+        // Realtime sessions expire server-side anyway; do not hold an unused
+        // one open indefinitely. Dropped again as soon as recording starts.
+        mainHandler.removeCallbacks(warmCeilingRunnable)
+        mainHandler.postDelayed(warmCeilingRunnable, WARM_SESSION_MAX_MS)
         setState(State.CONNECTING, getString(R.string.status_getting_key))
         setConnectionStates(ConnectionState.LOADING, ConnectionState.IDLE)
 
@@ -474,11 +595,16 @@ class LiveTypeImeService : InputMethodService() {
                     mainHandler.post {
                         if (thisGeneration != generation || state != State.CONNECTING) return@post
                         setIndicator(openAiIndicator, ConnectionState.OK)
-                        if (autoStartOnReady) {
+                        if (autoStartOnReady && activeEditorInfo != null) {
                             autoStartOnReady = false
                             beginRecording(thisGeneration)
                         } else {
                             // Prewarmed: socket is up, wait for the mic tap.
+                            // Or: the field went away mid-connect and we are
+                            // inside the grace window, in which case the tap
+                            // stays pending rather than opening the microphone
+                            // with nowhere to type. onStartInputView honours it
+                            // if the field comes back.
                             setState(State.READY, getString(R.string.status_ready))
                         }
                     }
@@ -523,6 +649,8 @@ class LiveTypeImeService : InputMethodService() {
     }
 
     private fun beginRecording(thisGeneration: Int) {
+        // The session is in use now: the idle ceiling no longer applies.
+        mainHandler.removeCallbacks(warmCeilingRunnable)
         val audioRecorder = PcmAudioRecorder(
             context = this,
             onAudio = { bytes ->
@@ -577,6 +705,10 @@ class LiveTypeImeService : InputMethodService() {
     }
 
     private fun completeSession(transcript: String, returnToPrevious: Boolean) {
+        Log.i(TAG, "Session torn down (transcript-completed) from $state")
+        // The socket closes below, so neither session timer applies any more.
+        mainHandler.removeCallbacks(graceTeardownRunnable)
+        mainHandler.removeCallbacks(warmCeilingRunnable)
         generation += 1
         autoStartOnReady = false
         // After a mid-dictation Enter the head of the transcript is already in
@@ -613,7 +745,18 @@ class LiveTypeImeService : InputMethodService() {
         }
     }
 
-    private fun cancelDictation(clearComposingText: Boolean) {
+    /**
+     * The single teardown path: closes whatever is open and returns to
+     * [State.IDLE]. [reason] is logged so a reconnect can be told apart from a
+     * reuse in the logs alone.
+     */
+    private fun cancelDictation(clearComposingText: Boolean, reason: String) {
+        // No timer may outlive the session it was armed for.
+        mainHandler.removeCallbacks(graceTeardownRunnable)
+        mainHandler.removeCallbacks(warmCeilingRunnable)
+        if (transcriber != null || state != State.IDLE) {
+            Log.i(TAG, "Session torn down ($reason) from $state")
+        }
         generation += 1
         autoStartOnReady = false
         recorder?.stop()
@@ -638,7 +781,9 @@ class LiveTypeImeService : InputMethodService() {
     }
 
     private fun failSession(message: String) {
-        Log.e(TAG, "Session failed: $message")
+        Log.e(TAG, "Session torn down (failed from $state): $message")
+        mainHandler.removeCallbacks(graceTeardownRunnable)
+        mainHandler.removeCallbacks(warmCeilingRunnable)
         generation += 1
         autoStartOnReady = false
         recorder?.stop()
@@ -894,6 +1039,40 @@ class LiveTypeImeService : InputMethodService() {
 
     companion object {
         private const val TAG = "LiveTypeIme"
+
+        /**
+         * Trailing-edge debounce before a prewarm connects.
+         *
+         * Measured on the device, a messenger fired `onStartInputView` twice
+         * inside the same second while the keyboard animated in, and each one
+         * honestly opened a billed Realtime session. Waiting out the burst
+         * collapses it into one. The cost is bounded: the socket still comes up
+         * long before a thumb reaches the mic, and a mic tap cancels the timer
+         * and connects immediately rather than waiting for it.
+         */
+        private const val PREWARM_DEBOUNCE_MS = 400L
+
+        /**
+         * How long a warm session outlives `onFinishInput`.
+         *
+         * The measured churn re-focused the editor 2s and then 5s apart, so
+         * this absorbs that pattern with margin while still guaranteeing that a
+         * genuinely abandoned session — keyboard dismissed, app switched — is
+         * closed within eight seconds rather than billed for the whole time the
+         * user is away.
+         */
+        private const val TEARDOWN_GRACE_MS = 8_000L
+
+        /**
+         * Hard ceiling on a warm session that is never used.
+         *
+         * Applies while the keyboard stays visible, where no `onFinishInput`
+         * ever arrives to arm the grace timer. Realtime sessions expire
+         * server-side anyway, so holding one past a few minutes buys nothing:
+         * somebody who has stared at the keyboard for five minutes without
+         * tapping the mic is not about to, and reconnecting costs a second.
+         */
+        private const val WARM_SESSION_MAX_MS = 5 * 60_000L
 
         /**
          * Square thumb targets on the right edge, laid out 2x2.

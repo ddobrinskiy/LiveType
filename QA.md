@@ -31,11 +31,11 @@ Last updated: 2026-08-01.
 | 1 | Connection indicators moved left, above the status line | device | | | yes |
 | 2 | Red + `!` badge when a connection is down, green when up, spinner while connecting | device | | | partial (the spinner only ever runs on the **token-server** indicator; nothing sets the OpenAI one to `LOADING`, so while the socket opens it shows the red `!` and then jumps straight to green) |
 | 3 | Tap an indicator → popup with its state | device | yes | **yes** | yes |
-| 4 | Recognised text no longer mirrored in the keyboard | device | | | yes |
-| 5 | Background `#E0EAEC`, dark strip removed | device | | | yes |
+| 4 | Recognised text no longer mirrored in the keyboard | device | yes | **yes** | yes |
+| 5 | Background `#E0EAEC`, dark strip removed | device | yes | **yes** | yes |
 | 6 | System `⌄` / globe glyphs forced dark | device | | | yes |
 | 7 | 2x2 thumb grid: keyboard / mic, backspace / Enter | device | | | yes (grid is now 3+2 — Paste joined the top row and the squares shrank 88dp → 72dp; keyboard / mic still sit directly above backspace / Enter) |
-| 8 | Icon-only buttons (no text labels) | device | | | yes (thumb grid only; Cancel and Settings are still text buttons, autosized by `fitLabel()`) |
+| 8 | Icon-only buttons (no text labels) | device | yes | **yes** | yes (thumb grid only; Cancel and Settings are still text buttons, autosized by `fitLabel()`) |
 | 9 | Status line only says "Ready" once the socket is really open | device | | | yes |
 
 ## Dictation behaviour

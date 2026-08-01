@@ -68,6 +68,18 @@
     <string name="action_pick_keyboard">Choose keyboard</string>
     <string name="section_connection">Connection</string>
     <string name="section_recognition">Recognition</string>
+    <!--
+        Worker picker. Debug builds only, but the strings live here (and in
+        values-ru) like any other: MissingTranslation does not care which build
+        type reads a key.
+    -->
+    <string name="label_endpoint_mode">Which worker</string>
+    <string name="endpoint_mode_prod">Production worker</string>
+    <string name="endpoint_mode_dev">Local worker over adb reverse</string>
+    <string name="endpoint_mode_custom">Custom URL</string>
+    <!-- Wraps the name of a mode that cannot be picked yet, so the greyed-out
+         row says why instead of leaving the reader to guess. -->
+    <string name="endpoint_mode_not_deployed">%1$s — not deployed yet</string>
     <string name="label_worker_endpoint">Worker token endpoint</string>
     <string name="label_device_secret">Device secret</string>
     <string name="label_languages">Expected languages, comma separated</string>

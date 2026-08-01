@@ -207,6 +207,70 @@ Rules the build enforces:
 - **Release gets literal empty strings**, not "whatever was parsed". The parse
   result is wired to the debug build type only.
 
+### The custom dictionary
+
+The user's transcription vocabulary (product names, jargon) is version
+controlled, not retyped on the phone:
+
+| File | Tracked? | What it is |
+|---|---|---|
+| `data/keywords.txt` | **no**, gitignored | The editable list. One term per line; `#` comments and blank lines allowed. |
+| `data/keywords.txt.age` | yes | The same content, age-encrypted. This is what travels in the repo. |
+
+Encrypted to the user's chezmoi age key. The recipient is a public key and is
+safe to keep here; the identity is `~/.config/chezmoi/key.txt` and is needed
+only to decrypt.
+
+```bash
+# decrypt after cloning on a new machine
+age -d -i ~/.config/chezmoi/key.txt -o data/keywords.txt data/keywords.txt.age
+
+# re-encrypt after editing
+age -r age1aqdf22l6p03g408sg9m9jxu6hwmml0vn9sr7jukff0ty35dwsuuswv9ak4 \
+    -o data/keywords.txt.age data/keywords.txt
+```
+
+**Never `git add` the plaintext.** It is gitignored; confirm with
+`git check-ignore -v data/keywords.txt` if you touch `.gitignore`.
+
+### Two traps when changing any built-in default
+
+Both of these cost real debugging time on 2026-08-01. Read them before editing
+`default_keywords`, `default_languages`, `default_prompt`, or anything else that
+seeds settings.
+
+**1. A real newline in `strings.xml` is not a newline.** Android collapses
+literal line breaks inside a resource value into spaces. The value needs the
+two-character escape `\n`. This bites hardest when generating the file from a
+script: Python's `re.sub` interprets escapes *in the replacement string*, so
+`"\\n"` silently becomes a real newline. Use a lambda replacement, and verify:
+
+```bash
+python3 -c "
+import re; s=open('android/app/src/main/res/values/strings.xml').read()
+v=re.search(r'name=\"default_keywords\"[^>]*>(.*?)</string>',s,re.S).group(1)
+print('real newlines:', v.count(chr(10)), '(must be 0)   literal:', v.count('\\\\n'))"
+```
+
+**2. Changing a default does nothing to an installed app.** Everything the build
+bakes in — endpoint, device secret, keywords, languages, prompt — is a
+`SharedPreferences` *default*. Once a value is stored on the phone it always
+wins, by design, so the user's edits are never clobbered. To actually see a new
+default you must wipe app data:
+
+```bash
+adb shell pm clear dev.dobrinskiy.livetype
+```
+
+That resets **everything**, including anything the user typed by hand. Back the
+current values up first — dump them with `uiautomator` and read the `EditText`
+fields — and be aware `adb shell input text` cannot type Cyrillic, so a Russian
+prompt cannot be restored automatically.
+
+Note also that `default_languages` and `default_prompt` are locale-resolved:
+on an English device a wipe pulls the English `values/` copies, not
+`values-ru/`.
+
 ### The debug APK contains the device secret — do not distribute it
 
 Baking the secret in trades secrecy for convenience on a phone you own and

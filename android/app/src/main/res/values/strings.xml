@@ -79,6 +79,29 @@
     <string name="permission_granted">✓ Microphone access granted</string>
     <string name="permission_missing">Allow the app to use the microphone first.</string>
 
+    <!--
+        Billing section. Every number shown here is computed by the worker; the
+        app only renders what it is handed. billing_unknown is the placeholder
+        that keeps "we could not find out" distinct from "zero".
+    -->
+    <string name="section_billing">Spending</string>
+    <string name="billing_unknown" translatable="false">—</string>
+    <string name="billing_price">%1$s · %2$s per minute</string>
+    <string name="billing_price_unknown">Price unknown</string>
+    <string name="billing_price_estimated">This price is an estimate: OpenAI does not publish a token price for this model, so the amounts below are approximate.</string>
+    <string name="billing_window_today">Today</string>
+    <string name="billing_window_7d">Last 7 days, today included</string>
+    <string name="billing_window_30d">Last 30 days, today included</string>
+    <string name="billing_source">Source: %1$s · %2$s</string>
+    <string name="billing_note">Counts only the dictation this app reported, by whole local days. It is a meter, not an OpenAI invoice.</string>
+    <string name="billing_loading">Loading spending…</string>
+    <string name="billing_not_configured">Fill in the Worker endpoint and the device secret above, then save, to see spending.</string>
+    <string name="billing_error_network">Could not reach the Worker. Check that it is running and that the phone can reach it.</string>
+    <string name="billing_error_unauthorized">The Worker rejected the device secret (HTTP 401). Check the secret above.</string>
+    <string name="billing_error_worker">The Worker could not report spending: %1$s</string>
+    <string name="billing_error_http">The Worker returned HTTP %1$d</string>
+    <string name="billing_error_malformed">The Worker\'s answer could not be read.</string>
+
     <!-- Defaults seeded into settings on first run -->
     <string name="default_languages">en</string>
     <string name="default_prompt">Dictation of messages and technical notes. Keep punctuation, English product names and the speaker\'s original language.</string>

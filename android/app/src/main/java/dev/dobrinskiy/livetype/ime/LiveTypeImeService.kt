@@ -34,6 +34,8 @@ import dev.dobrinskiy.livetype.config.FeatureFlags
 import dev.dobrinskiy.livetype.config.LiveTypeSettings
 import dev.dobrinskiy.livetype.network.RealtimeTranscriber
 import dev.dobrinskiy.livetype.network.TokenProvider
+import dev.dobrinskiy.livetype.network.UsageReporter
+import org.json.JSONObject
 import java.util.concurrent.Executors
 
 class LiveTypeImeService : InputMethodService() {
@@ -54,6 +56,7 @@ class LiveTypeImeService : InputMethodService() {
     private val mainHandler = Handler(Looper.getMainLooper())
     private val tokenExecutor = Executors.newSingleThreadExecutor()
     private val tokenProvider = TokenProvider()
+    private val usageReporter = UsageReporter()
 
     private lateinit var statusText: TextView
     private lateinit var warningIcon: ImageView
@@ -626,7 +629,16 @@ class LiveTypeImeService : InputMethodService() {
                     }
                 }
 
-                override fun onTranscriptCompleted(itemId: String, transcript: String) {
+                override fun onTranscriptCompleted(
+                    itemId: String,
+                    transcript: String,
+                    usage: JSONObject?,
+                ) {
+                    // Deliberately outside the generation check and outside the
+                    // main-thread hop: OpenAI billed for this audio whether or
+                    // not these callbacks still belong to the live session, and
+                    // metering must not wait on the UI.
+                    reportUsage(settings, itemId, usage)
                     mainHandler.post {
                         if (thisGeneration != generation) return@post
                         completeSession(transcript, settings.returnToPreviousKeyboard)
@@ -654,6 +666,24 @@ class LiveTypeImeService : InputMethodService() {
         transcriber = realtime
         realtime.connect(clientSecret)
         setState(State.CONNECTING, getString(R.string.status_connecting_openai))
+    }
+
+    /**
+     * Hands the billable quantity OpenAI reported to the worker, which prices
+     * it and keeps the ledger.
+     *
+     * Fire-and-forget on [tokenExecutor], never awaited and never surfaced: a
+     * failed metering call is logged and dropped. Losing a usage row is
+     * acceptable; breaking a dictation because a metering call failed is not.
+     * That includes the executor already being shut down under us.
+     */
+    private fun reportUsage(settings: LiveTypeSettings, itemId: String, usage: JSONObject?) {
+        if (usage == null) {
+            Log.w(TAG, "Transcription completed without usage; nothing to meter")
+            return
+        }
+        runCatching { tokenExecutor.execute { usageReporter.report(settings, itemId, usage) } }
+            .onFailure { Log.w(TAG, "Usage report not queued: ${it.message}") }
     }
 
     private fun beginRecording(thisGeneration: Int) {

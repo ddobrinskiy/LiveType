@@ -21,9 +21,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # wrangler and miniflare both declare engines >= 22, and the worker tests
+      # now boot a real workerd to exercise D1, so 20 is no longer enough.
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: npm
           cache-dependency-path: worker/package-lock.json
 

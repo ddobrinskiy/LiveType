@@ -102,10 +102,15 @@ $AAPT2 dump xmltree --file res/xml/network_security_config.xml \
 
 ```bash
 cd worker
+# One-off: create the usage tables in the local D1 wrangler dev will use.
+npx wrangler d1 execute livetype-usage --local --file=./migrations/0001_usage_events.sql -y
 npx wrangler dev --ip 0.0.0.0
 # Serves on http://0.0.0.0:8787
 # Auto-reloads on src changes
 ```
+
+Routes: `POST /token`, `POST /usage`, `GET /usage` — see
+[Billing and usage tracking](#billing-and-usage-tracking).
 
 ### 4. Set up ADB reverse tunnel
 
@@ -150,6 +155,18 @@ cd android && ./gradlew assembleDebug
 
 `.github/workflows/ci.yml` runs exactly those two on push to `main` and on every
 pull request. Nothing in CI needs secrets, and CI never touches a device.
+
+The worker suite boots a real `workerd` through **miniflare** to get a real
+in-memory D1 for the billing tests — the SQL, the `INSERT OR IGNORE`
+idempotency and the aggregate queries are exercised for real, not stubbed. That
+is why `miniflare` is a pinned devDependency (same version wrangler already
+resolves, so it dedupes) and why the CI worker job needs **Node 22**: both
+`wrangler` and `miniflare` declare `engines: >=22`.
+
+Time-dependent tests fake only `Date` (`vi.useFakeTimers({ toFake: ["Date"] })`)
+— the worker is imported into the Node test process and only its D1 binding
+comes from miniflare, so the worker's `Date.now()` is the test's clock while
+miniflare's own timers keep running.
 
 ## Debug vs release configuration
 
@@ -216,6 +233,8 @@ The app logs errors with tags:
 | `You must not provide a model parameter for transcription sessions` | Same as above | Same as above |
 | `languages parameter not supported` | Model doesn't support language hint | Remove `languages` from client_secrets request body |
 | `no credits remaining` (429, `credit_balance_exhausted`) | OpenAI account out of credits | Top up billing. Note `/token` still returns **200** — minting an ephemeral secret is free, so the failure only surfaces at the WebSocket stage |
+| `/usage` returns `500 {"error":"Could not read usage"}` or `"Could not record usage"` | D1 has no `usage_events` table | Run the `wrangler d1 execute … --file=./migrations/0001_usage_events.sql` step |
+| `/usage` returns `500 {"error":"Worker is misconfigured"}` | no `DB` binding, or a bad `TRANSCRIPTION_MODEL` | Check `wrangler.jsonc` `d1_databases` and the model allowlist |
 
 ## Model Notes
 
@@ -272,3 +291,152 @@ All six models in the table above are available on the current key and accepted
 by `/v1/realtime/client_secrets` (verified 2026-08-01). The rest of the
 `gpt-realtime*` family is for speech-to-speech sessions, not transcription, and
 is deliberately off the allowlist.
+
+## Billing and usage tracking
+
+### Where the numbers come from
+
+OpenAI puts the **billable quantity itself** on the transcription WebSocket, in
+the `conversation.item.input_audio_transcription.completed` event the app
+already handles:
+
+```jsonc
+// duration-billed models
+{ "item_id": "item_E81t1mmrLaGrBlAjuBJp2", "usage": { "type": "duration", "seconds": 3 } }
+// token-billed models (gpt-4o-transcribe, gpt-4o-mini-transcribe)
+{ "item_id": "item_…", "usage": { "type": "tokens", "input_tokens": 30,
+    "input_token_details": { "text_tokens": 0, "audio_tokens": 30 }, … } }
+```
+
+`duration.seconds` is **ceil'd per committed buffer** and is billed even when
+the transcript comes back empty. Audio tokens are exactly **600 per minute**.
+Both measured against the live API on 2026-08-01.
+
+The phone forwards that payload verbatim; **every billing decision is made in
+the worker.** The Costs API was evaluated and rejected: it needs an admin key
+(a project key gets a hard 403 on all of `/v1/organization/*`), buckets only by
+UTC day, and does not group by model.
+
+### The phone renders, it does not compute
+
+The device must not hold a price table, convert tokens to minutes, or decide
+what "today" means. It posts the raw event and renders the numbers `GET /usage`
+hands back. This is the same rule as model selection: a device-supplied `model`,
+`price`, `usd` or `usd_nanos` in a `POST /usage` body is ignored, and a test
+asserts it.
+
+### `POST /usage` — ingest
+
+Auth: `X-Device-Secret`, same `secureEquals` check as `/token`.
+
+```jsonc
+// request
+{ "item_id": "item_E81t1mmrLaGrBlAjuBJp2",       // required, [A-Za-z0-9_-]{1,128}
+  "usage": { "type": "duration", "seconds": 3 } } // or the "tokens" shape above
+```
+
+| Status | Body | When |
+|---|---|---|
+| 202 | `{"ok":true,"duplicate":false}` | recorded |
+| 202 | `{"ok":true,"duplicate":true}` | `item_id` already stored — retries are free |
+| 400 | `{"error":"<reason>"}` | malformed body, bad `item_id`, unknown `usage.type`, non-numeric/negative/out-of-range quantity |
+| 401 | `{"error":"Unauthorized"}` | wrong or missing device secret |
+| 500 | `{"error":"Worker is misconfigured"}` | no `DB` binding, or an off-allowlist `TRANSCRIPTION_MODEL` |
+
+A single commit is capped at **14400 s** (or 144000 audio tokens) so one bad
+row cannot poison the chart. `item_id` is the primary key, so the phone's retry
+outbox can post the same record as often as it likes.
+
+Both usage shapes are accepted whatever model is configured — `TRANSCRIPTION_MODEL`
+can change while a session is in flight, and the conversion is fixed, so
+accepting the other shape loses nothing and grants the device no leverage.
+
+### `GET /usage?tz_offset_minutes=<int>` — read
+
+`tz_offset_minutes` is **minutes to add to UTC to get device-local time** —
+exactly `TimeZone.getDefault().getOffset(System.currentTimeMillis()) / 60000`
+in Java. Moscow `180`, New York in winter `-300`. Anything non-integer or
+outside ±840 silently falls back to UTC; the applied value is echoed back.
+
+```jsonc
+{
+  "model": "gpt-live-transcribe",
+  "price": { "usd_per_minute": 0.017, "usd_micros_per_minute": 17000,
+             "unit": "duration", "estimated": false },
+  "windows": {
+    "today":    { "seconds": 412, "usd": 0.116733, "usd_micros": 116733, "sessions": 23 },
+    "last_7d":  { … },
+    "last_30d": { … }
+  },
+  "tz_offset_minutes": 180,
+  "as_of": "2026-08-01T14:31:07.000Z",
+  "source": "device_reported"
+}
+```
+
+- Windows are **whole local calendar days including today**, so `last_7d` is
+  today plus the six before it — not the last 168 hours.
+- `usd == usd_micros / 1e6` always. Render either; never re-derive dollars from
+  `seconds`, because the row's price may differ from the current one.
+- **`estimated: true`** for `gpt-4o-transcribe` and `gpt-4o-mini-transcribe`.
+  OpenAI does not publish an audio-input **token** price for those two; the
+  per-minute figure is OpenAI's own "estimated cost" column. The UI must say so
+  rather than imply cent-accuracy. The default model is not affected.
+- `source` is `"device_reported"` today. It exists so an admin-key
+  reconciliation path can be added later without a breaking change — the phone
+  should display whatever it receives, not assume the constant.
+- This is a spend **meter, not an audit**. It counts what this app reported; it
+  cannot see free credits, prepaid discounts, or spend from anything else on the
+  OpenAI account. A session lost to a dead phone or a dropped network
+  under-counts.
+
+Prices live in `MODEL_PRICES` in `worker/src/index.ts`, as integer micro-USD per
+minute, transcribed from <https://developers.openai.com/api/docs/pricing> on
+2026-08-01. **Every key of `SUPPORTED_MODELS` must have an entry**; a test
+enforces it. When a price changes, edit the table — old rows keep the price
+frozen into them and are never re-priced.
+
+### D1 provisioning
+
+`worker/wrangler.jsonc` now carries the project's first binding. `database_id`
+in it is a **placeholder**; `wrangler dev` ignores it (local D1 is created on
+demand under `worker/.wrangler/`) but `wrangler deploy` does not.
+
+```bash
+cd worker
+
+# 1. Local dev — create the tables in the local SQLite that `wrangler dev` uses.
+#    Re-runnable: the migration is IF NOT EXISTS throughout.
+npx wrangler d1 execute livetype-usage --local --file=./migrations/0001_usage_events.sql -y
+
+# 2. Real database, once per account. Copy the printed database_id into
+#    wrangler.jsonc, replacing REPLACE_WITH_ID_FROM_WRANGLER_D1_CREATE.
+npx wrangler d1 create livetype-usage
+
+# 3. Apply the schema remotely, then deploy.
+npx wrangler d1 migrations apply livetype-usage --remote
+npx wrangler deploy
+
+# Handy afterwards:
+npx wrangler d1 execute livetype-usage --local  --command "SELECT * FROM usage_events ORDER BY created_at_ms DESC LIMIT 10"
+npx wrangler d1 execute livetype-usage --remote --command "SELECT model, COUNT(*), SUM(usd_nanos)/1e9 AS usd FROM usage_events GROUP BY model"
+```
+
+Free plan: 10 databases, 500 MB, 5 M rows read/day. One dictation is a few
+hundred bytes, so this will not grow into anything.
+
+**Not KV.** KV caps writes at 1/sec/key and 1000/day on the free plan, and a
+running total in KV is a read-modify-write race against eventual consistency.
+D1 is SQLite: one row per session, `SELECT SUM(...) WHERE created_at_ms >= ?`.
+
+### Schema
+
+`worker/migrations/0001_usage_events.sql`, table `usage_events`, keyed on
+`item_id`. Each row freezes `model`, `price_micro_usd_per_minute`,
+`price_estimated` and the resolved `usd_nanos` **as of the session**, keeps the
+raw reported `quantity` alongside the normalised `billable_seconds`, and stamps
+`created_at_ms` from the **worker** clock — the device's clock is never trusted
+for bucketing, only its UTC offset.
+
+Costs are stored in **nano**-USD: one second of `gpt-live-transcribe` is 283333
+nanos, and rounding that to whole micro-dollars would lose a fifth of it.

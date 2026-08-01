@@ -938,9 +938,10 @@ class LiveTypeImeService : InputMethodService() {
      * The single writer of the status line — text, colour and alarm icon alike.
      *
      * @param warning marks the status as a live problem the user should act on:
-     *   red text plus the alarm icon, which no other state shows. The session
-     *   itself stays up — a failure goes through [failSession] instead — and
-     *   the next plain [setState] clears both again.
+     *   red text, the alarm icon and a red record button, which no other state
+     *   shows. The session itself stays up — a failure goes through
+     *   [failSession] instead — and the next plain [setState] clears all three
+     *   again.
      */
     private fun setState(newState: State, status: String, warning: Boolean = false) {
         state = newState
@@ -992,6 +993,23 @@ class LiveTypeImeService : InputMethodService() {
                 settingsButton.isEnabled = false
             }
         }
+        // After the branch, never inside it: every arm above reassigns the
+        // drawable, and a tint applied before that is at the mercy of whether
+        // ImageView happens to carry its colour filter across
+        // setImageResource. Unconditional in both directions too — a red
+        // button that is only ever un-redded by some *specific* recovery path
+        // is one missed path away from staying red for the rest of the
+        // session, which is worse than never turning it red at all.
+        //
+        // INDICATOR_ERROR, not the status line's ERROR_COLOR: this is a 32dp
+        // glyph, and ERROR_COLOR is darkened purely to clear 4.5:1 for 15sp
+        // text (see its doc comment). Glyphs only need 3:1, and the brighter
+        // red is what the rest of the keyboard already uses to say "alarm" in
+        // icon form.
+        primaryButton.setColorFilter(
+            if (warning) INDICATOR_ERROR else BUTTON_ICON_COLOR,
+            PorterDuff.Mode.SRC_IN,
+        )
         refreshButtonAlpha()
     }
 
@@ -1312,7 +1330,7 @@ class LiveTypeImeService : InputMethodService() {
          * - both indicators: 30 + 14 + 30 = 74dp, with room to spare;
          * - the status line: 141 − 18 (alarm icon) − 6 (its margin) = 117dp,
          *   about 15 characters per line at 15sp, so the longest string —
-         *   Russian `status_mic_in_use`, 59 chars — wraps to four lines and
+         *   Russian `status_listening`, 45 chars — wraps to four lines and
          *   still fits inside the 152dp the grid is tall;
          * - Cancel and Settings at (141 − 6) / 2 ≈ 67dp each, which needs the
          *   label autosizing in `fitLabel()` but no wrapping.

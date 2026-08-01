@@ -29,6 +29,24 @@ data class LiveTypeSettings(
 ) {
     val isConfigured: Boolean
         get() = isAllowedTokenEndpoint(tokenEndpoint) && deviceSecret.isNotBlank()
+
+    /**
+     * `/usage` on the same worker as [tokenEndpoint]. Only one URL is ever
+     * configured on the device, and both routes take the same
+     * `X-Device-Secret`, so the metering endpoint is derived rather than typed
+     * a second time and left to drift.
+     */
+    val usageEndpoint: String
+        get() = if (tokenEndpoint.endsWith(TOKEN_PATH)) {
+            tokenEndpoint.dropLast(TOKEN_PATH.length) + USAGE_PATH
+        } else {
+            tokenEndpoint.trimEnd('/') + USAGE_PATH
+        }
+
+    private companion object {
+        const val TOKEN_PATH = "/token"
+        const val USAGE_PATH = "/usage"
+    }
 }
 
 object AppSettings {

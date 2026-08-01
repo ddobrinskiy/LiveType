@@ -18,7 +18,15 @@ class RealtimeTranscriber(
     interface Listener {
         fun onReady()
         fun onTranscriptDelta(itemId: String, delta: String)
-        fun onTranscriptCompleted(itemId: String, transcript: String)
+
+        /**
+         * @param usage the event's `usage` object exactly as OpenAI sent it —
+         *   `{"type":"duration","seconds":3}`, or the `"tokens"` shape for the
+         *   `gpt-4o*-transcribe` models — or null if the event carried none.
+         *   Nothing here reads inside it: it is the billable quantity, and the
+         *   worker is what prices it.
+         */
+        fun onTranscriptCompleted(itemId: String, transcript: String, usage: JSONObject?)
         fun onError(message: String)
         fun onClosed()
     }
@@ -107,9 +115,12 @@ class RealtimeTranscriber(
             }
 
             "conversation.item.input_audio_transcription.completed" -> {
+                // The same event carries what OpenAI bills for. Pass it up
+                // untouched; dropping it would make the spend unknowable.
                 listener.onTranscriptCompleted(
                     event.optString("item_id"),
                     event.optString("transcript"),
+                    event.optJSONObject("usage"),
                 )
             }
 

@@ -165,6 +165,13 @@ own key before distributing.
 Settings are stored in app-private `SharedPreferences` and excluded from cloud
 backup and device transfer.
 
+The **Spending** section at the bottom of the screen shows the price per minute
+of the model the Worker has chosen, and what you spent today, over the last
+7 days and over the last 30 days — whole local calendar days, today included.
+The app reports each session's usage to the Worker and renders the numbers it
+gets back; it computes no prices of its own. It is a meter of what this app
+reported, not an OpenAI invoice.
+
 ## Using the keyboard
 
 - Tap the microphone to start. Two indicators show the token Worker and the

@@ -64,6 +64,24 @@
     <string name="permission_granted">✓ Доступ к микрофону разрешён</string>
     <string name="permission_missing">Сначала разреши приложению использовать микрофон.</string>
 
+    <!-- Billing section -->
+    <string name="section_billing">Расходы</string>
+    <string name="billing_price">%1$s · %2$s за минуту</string>
+    <string name="billing_price_unknown">Цена неизвестна</string>
+    <string name="billing_price_estimated">Цена оценочная: OpenAI не публикует стоимость токенов для этой модели, поэтому суммы ниже приблизительные.</string>
+    <string name="billing_window_today">Сегодня</string>
+    <string name="billing_window_7d">Последние 7 дней, включая сегодня</string>
+    <string name="billing_window_30d">Последние 30 дней, включая сегодня</string>
+    <string name="billing_source">Источник: %1$s · %2$s</string>
+    <string name="billing_note">Учитываются только диктовки, о которых сообщило приложение, по целым локальным дням. Это счётчик, а не счёт от OpenAI.</string>
+    <string name="billing_loading">Загружаю расходы…</string>
+    <string name="billing_not_configured">Укажи адрес воркера и секрет устройства выше и сохрани — тогда появятся расходы.</string>
+    <string name="billing_error_network">Не удалось связаться с воркером. Проверь, что он запущен и доступен с телефона.</string>
+    <string name="billing_error_unauthorized">Воркер отклонил секрет устройства (HTTP 401). Проверь секрет выше.</string>
+    <string name="billing_error_worker">Воркер не смог показать расходы: %1$s</string>
+    <string name="billing_error_http">Воркер вернул HTTP %1$d</string>
+    <string name="billing_error_malformed">Не удалось прочитать ответ воркера.</string>
+
     <!-- Defaults seeded into settings on first run -->
     <string name="default_languages">ru,en</string>
     <string name="default_prompt">Диктовка сообщений и технических заметок. Сохраняй пунктуацию, английские названия продуктов и исходный язык говорящего.</string>

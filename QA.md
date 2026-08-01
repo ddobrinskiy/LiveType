@@ -43,11 +43,10 @@ Last updated: 2026-08-01.
 | # | Feature | Me | You | Confirmed | In main |
 |---|---|---|---|---|---|
 | 10 | Connection prewarms when the keyboard opens | device | | | yes |
-| 11 | Mic tap during `CONNECTING` is not lost | build only | | | yes |
-| 12 | Enter inserts a newline, never sends the message | partial | | | yes |
-| 13 | Enter stays active *during* dictation without duplicating text | build only | | | yes |
-| 14 | Backspace: hold to repeat, accelerating to whole words | build only | | | yes |
-| 15 | Auto-return to previous keyboard disabled via feature flag | build only | | | yes |
+| 12 | Enter inserts a newline, never sends the message | partial | yes | **yes** | yes |
+| 13 | Enter stays active *during* dictation without duplicating text | build only | yes | **yes** | yes |
+| 14 | Backspace: hold to repeat, accelerating to whole words | build only | yes | **yes** | yes |
+| 15 | Auto-return to previous keyboard disabled via feature flag | build only | yes | **yes** | yes |
 
 ## Reliability / cost
 
@@ -86,7 +85,7 @@ Last updated: 2026-08-01.
 | # | Feature | Me | You | Confirmed | In main |
 |---|---|---|---|---|---|
 | 29 | Billing UI in settings | device | yes | **yes** — live figures once D1 was provisioned | yes (`seconds`, `sessions` and `price.unit` are parsed from the worker but not rendered; money is) |
-| 30 | Paste button for the last phrase, 5-minute expiry | build only | | | yes |
+| 30 | Paste button for the last phrase, 5-minute expiry | build only | yes | **yes** | yes |
 | 31 | Custom dictionary baked into debug builds (45 terms) | device — verified on a clean install, 45 terms one per line | | | yes (decoded `BuildConfig.DEFAULT_KEYWORDS` from the debug build: 45 terms, exactly matching `data/keywords.txt` after comment/blank/duplicate filtering) |
 | 32 | Debug build self-configures endpoint + secret | device — confirmed after `pm clear` | | | yes |
 | 33 | `data/keywords.txt.age`, age round-trip | partial — encrypt/decrypt verified byte-for-byte; plaintext confirmed untrackable | — | | yes |
@@ -94,6 +93,16 @@ Last updated: 2026-08-01.
 | 35 | Money rounded to three decimals, tiny amounts as `<$0.001` | partial — checked across realistic amounts in en_US and ru_RU | | | yes |
 
 ---
+
+## Deployment (not done yet)
+
+| # | Feature | Me | You | Confirmed | In main |
+|---|---|---|---|---|---|
+| 36 | Worker deployed to Cloudflare (`wrangler deploy` + remote D1) | no — never deployed; `wrangler.jsonc` still has the placeholder `database_id` | | | no |
+| 37 | Dictation works with **no local worker**: `adb reverse` removed, cable out, endpoint pointing at `https://….workers.dev/token`, over mobile data | no | | | no |
+
+Row 37 is the one that actually proves it. Deploying alone is not enough — with
+the tunnel still up the phone can keep hitting localhost and look fine.
 
 ## Known gaps
 

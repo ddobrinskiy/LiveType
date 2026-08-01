@@ -348,6 +348,43 @@ Data can only be lost through a deliberate act: running `wrangler d1 execute`
 with destructive SQL, deleting and recreating the database, or adding a
 migration containing `DROP`/`ALTER`. Keep new migrations additive.
 
+### 3.8.1 Geography: the phone must sit in an OpenAI-supported country
+
+OpenAI refuses requests from unsupported countries with
+`403 unsupported_country`. Because §3.1 has the phone talking to OpenAI
+**directly**, that restriction lands on the *device's* egress IP, not on any
+server we control. Observed 2026-08-01 from Russia; the same call from a
+Netherlands egress returns 200.
+
+It bites twice, and the second one is the reason a server-side fix is not
+enough:
+
+1. **`POST /token`.** Cloudflare runs a Worker on the edge nearest the client,
+   so a request from Russia executes on a Russian edge and calls OpenAI from a
+   Russian IP. The Worker faithfully proxies OpenAI's 403, which reads as "the
+   worker returned 403" but is not the Worker's doing.
+2. **The realtime WebSocket.** This one leaves the phone itself. No amount of
+   Worker configuration touches it.
+
+**Decision: accept the limitation. A VPN on the phone is the answer.** It fixes
+both legs at once and costs no code. This is also why dictation worked while
+tethered: the traffic was leaving through the Mac.
+
+Two alternatives were considered and rejected:
+
+- **Smart Placement** (`placement: { mode: "smart" }`) would run the Worker
+  near OpenAI instead of near the user, fixing leg 1. Leg 2 would still fail,
+  so it buys a confusing half-working state rather than a fix. Worth revisiting
+  only if the audio path ever changes.
+- **Proxying audio through the Worker** would defeat the geography completely,
+  but it reverses the project's central decision (§3.1): it inserts a hop into
+  a latency-critical path and pushes long-lived audio streaming onto an
+  execution model that suits it poorly. Not worth it for a geography workaround.
+
+The practical consequence for anyone reading this later: LiveType needs the
+*phone* to be in a supported country, and no server-side change will alter
+that while the audio path stays direct.
+
 ### 3.9 Debug and release builds differ on purpose
 
 | | debug | release |

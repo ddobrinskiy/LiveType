@@ -249,6 +249,41 @@ Rules, same shape as the `.dev.vars` ones above:
   `buildConfigField` pastes its argument into `BuildConfig.java` verbatim and
   the list is multi-line.
 
+### Test device metrics — converting real-world sizes to dp
+
+The keyboard is laid out entirely in Kotlin using `dp()`, so any request phrased
+in centimetres ("make it a centimetre taller") needs converting. Measured on the
+test device:
+
+| | |
+|---|---|
+| Device | Pixel 9 |
+| Resolution | 1080 × 2424 px |
+| Density | **420 dpi** → density scale **2.625** |
+| Screen width | 411 dp |
+| **1 cm** | **≈ 166 px ≈ 63 dp** |
+| 1 mm | ≈ 6.3 dp |
+
+Confirm on any other device rather than assuming:
+
+```bash
+adb shell wm density     # "Physical density: 420"  -> scale = 420/160 = 2.625
+adb shell wm size        # "Physical size: 1080x2424"
+```
+
+Then `dp = cm × (dpi / 2.54) / scale`, which for this phone is `cm × 63`.
+
+Two things worth remembering when resizing the keyboard:
+
+- **Width is the scarce axis, height is free.** The layout arithmetic lives in
+  the `THUMB_BUTTON_DP` KDoc: three 72 dp keys plus gaps already leave only
+  141 dp for the status column. Growth requests should almost always be
+  satisfied vertically.
+- **`systemInsetPadding()` is not part of the content height.** It reserves the
+  gesture-bar area at the bottom. Any padding added to raise the buttons is
+  *additional* to it — folding the two together double-counts the gesture area
+  on some devices and drops it on others.
+
 ### Two traps when changing any built-in default
 
 Both of these cost real debugging time on 2026-08-01. Read them before editing

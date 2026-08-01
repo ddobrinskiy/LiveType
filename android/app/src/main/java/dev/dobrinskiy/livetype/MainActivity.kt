@@ -239,6 +239,10 @@ class MainActivity : Activity() {
 
         return ScrollView(this).apply {
             addView(content)
+            // Belt and braces over the per-field opt-out: the "save password?"
+            // prompt is raised for the autofill *session* when the screen is
+            // left, so excluding the whole tree is what actually stops it.
+            importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS
         }
     }
 
@@ -770,6 +774,12 @@ class MainActivity : Activity() {
         this.hint = hint
         this.inputType = inputType
         setSingleLine(true)
+        // None of these are credentials for a site or an account, so no
+        // password manager should be offering to save or fill them. The device
+        // secret in particular is masked only to keep it off a shoulder-surfer's
+        // screen; marking it PASSWORD is what makes autofill services offer to
+        // store it, which is both useless and a second copy of a secret.
+        importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS
         layoutParams = LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT,
             LinearLayout.LayoutParams.WRAP_CONTENT,
@@ -778,6 +788,7 @@ class MainActivity : Activity() {
 
     private fun multilineField(lines: Int) = EditText(this).apply {
         inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
+        importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS
         gravity = Gravity.TOP
         minLines = lines
         maxLines = lines + 3

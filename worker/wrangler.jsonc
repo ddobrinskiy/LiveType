@@ -5,6 +5,18 @@
   "compatibility_date": "2026-07-29",
   "observability": {
     "enabled": true
-  }
+  },
+  // Usage ledger behind the Billing screen. `wrangler dev` creates this
+  // locally on first use; `database_id` only matters for `wrangler deploy` and
+  // stays a placeholder until `wrangler d1 create livetype-usage` prints the
+  // real one. See AGENTS.md -> "Billing and usage tracking".
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "livetype-usage",
+      "database_id": "REPLACE_WITH_ID_FROM_WRANGLER_D1_CREATE",
+      "migrations_dir": "migrations"
+    }
+  ]
 }
 

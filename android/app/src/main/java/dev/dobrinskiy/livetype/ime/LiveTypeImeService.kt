@@ -153,6 +153,37 @@ class LiveTypeImeService : InputMethodService() {
      */
     private var stoppedByRecordingLimit = false
 
+    /**
+     * `item_id` of the phrase currently being transcribed, learned from its
+     * first delta. It is the only identity a transcript event carries, and
+     * [abandonPhrase] needs it to recognise the late deltas of a phrase the
+     * user threw away. Reset by [beginRecording] so no phrase inherits it.
+     */
+    private var currentItemId: String? = null
+
+    /**
+     * `item_id` of the last phrase the user abandoned. Its deltas may still be
+     * in flight and must never reach the editor. Never cleared while the
+     * socket lives: ids are unique per phrase, so remembering one blocks
+     * nothing legitimate.
+     */
+    private var abandonedItemId: String? = null
+
+    /**
+     * Committed buffers whose transcript the user no longer wants — Cancel
+     * pressed in [State.FINISHING], after `input_audio_buffer.commit` had
+     * already gone out.
+     *
+     * A counter rather than a flag, and consumed in arrival order, because one
+     * WebSocket delivers completions in commit order: the abandoned one is
+     * always ahead of any phrase started afterwards. OpenAI bills that audio —
+     * so `reportUsage` still runs — but the text is dropped instead of being
+     * committed into whatever the user is typing now. Reset by every teardown,
+     * since a counter that outlived its transcriber would eat the first real
+     * transcript of the next session.
+     */
+    private var abandonedCompletions = 0
+
     override fun onCreateInputView(): View {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -279,9 +310,7 @@ class LiveTypeImeService : InputMethodService() {
             isAllCaps = false
             isEnabled = false
             fitLabel()
-            setOnClickListener {
-                cancelDictation(clearComposingText = true, reason = "user-cancelled")
-            }
+            setOnClickListener { abandonPhrase("user-cancelled") }
             layoutParams = LinearLayout.LayoutParams(0, dp(52), 1f).apply {
                 marginEnd = dp(6)
             }
@@ -701,6 +730,15 @@ class LiveTypeImeService : InputMethodService() {
                 override fun onTranscriptDelta(itemId: String, delta: String) {
                     mainHandler.post {
                         if (thisGeneration != generation) return@post
+                        // [generation] cannot filter these: Cancel keeps the
+                        // transcriber, so the callbacks of the phrase it threw
+                        // away are the callbacks of the live socket. Two checks
+                        // stand in for it — the abandoned phrase's own id, and
+                        // the fact that nothing outside RECORDING / FINISHING
+                        // is expecting a transcript at all.
+                        if (itemId.isNotEmpty() && itemId == abandonedItemId) return@post
+                        if (state != State.RECORDING && state != State.FINISHING) return@post
+                        currentItemId = itemId
                         partialTranscript.append(delta)
                         currentInputConnection?.setComposingText(pendingTranscript(), 1)
                     }
@@ -718,6 +756,16 @@ class LiveTypeImeService : InputMethodService() {
                     reportUsage(settings, itemId, usage)
                     mainHandler.post {
                         if (thisGeneration != generation) return@post
+                        // Cancelled after the commit had already gone out: the
+                        // audio was billed above, but its text is not wanted
+                        // and must not be committed into whatever the user is
+                        // doing now. Completions arrive in commit order, so the
+                        // oldest outstanding abandonment is this one.
+                        if (abandonedCompletions > 0) {
+                            abandonedCompletions -= 1
+                            Log.i(TAG, "Dropped the transcript of an abandoned phrase")
+                            return@post
+                        }
                         completeSession(transcript, settings.returnToPreviousKeyboard)
                     }
                 }
@@ -773,6 +821,9 @@ class LiveTypeImeService : InputMethodService() {
         // invariant local rather than a claim about every other method.
         mainHandler.removeCallbacks(recordingCeilingRunnable)
         stoppedByRecordingLimit = false
+        // A new phrase gets a new item_id from OpenAI; carrying the previous
+        // one would make abandonPhrase remember the wrong phrase.
+        currentItemId = null
         val audioRecorder = PcmAudioRecorder(
             context = this,
             onAudio = { bytes ->
@@ -973,9 +1024,99 @@ class LiveTypeImeService : InputMethodService() {
     }
 
     /**
+     * The user abandoned **this phrase** — the Cancel button, and nothing else.
+     *
+     * This is deliberately *not* [cancelDictation]. Cancel used to inherit the
+     * single teardown path, so tapping it closed the socket, reddened both
+     * indicators and made the next dictation reconnect from scratch. Abandoning
+     * a phrase is the mirror image of [completeSession]: drop the audio and the
+     * partial transcript, keep the transcriber, land back in [State.READY] with
+     * the indicators still green. Everything else — grace expiry, the idle
+     * ceiling, a password field, the keyboard switch, `onFinishInput`,
+     * `onDestroy`, [failSession] — still tears the session down through
+     * [cancelDictation], unchanged.
+     *
+     * **[generation] is deliberately not bumped**, for the reason spelled out
+     * in [openSession] and [completeSession]: it tracks the lifetime of the
+     * [RealtimeTranscriber], and bumping it while the transcriber survives
+     * would orphan the callbacks of a live socket — no further delta,
+     * completion, error or `onClosed` would ever be acted on, and the app would
+     * go deaf to a session it is still holding open. The in-flight phrase is
+     * silenced by narrower means instead, one per event:
+     * - **audio** — `input_audio_buffer.clear` discards what OpenAI has
+     *   buffered. Uncommitted audio is unbilled, and clearing it is what keeps
+     *   it that way; it also means no completion is generated for it at all.
+     * - **deltas** — [abandonedItemId] remembers the phrase's `item_id`, and
+     *   the delta handler additionally ignores anything arriving outside
+     *   RECORDING / FINISHING, which is where this method leaves us.
+     * - **completions** — only possible if the commit had already gone out
+     *   (Cancel during [State.FINISHING]); [abandonedCompletions] drops exactly
+     *   that many transcripts, in arrival order.
+     *
+     * Billing is untouched: usage is reported from the completion event alone,
+     * so a phrase cancelled while recording — the ordinary case — is never
+     * committed and therefore never metered, while one cancelled after the
+     * commit is metered honestly because OpenAI charged for it regardless.
+     */
+    private fun abandonPhrase(reason: String) {
+        val live = transcriber
+        if (live == null || (state != State.RECORDING && state != State.FINISHING)) {
+            // No phrase to abandon: either nothing is connected, or the user is
+            // cancelling a connection attempt rather than a phrase. Keeping a
+            // half-open session and claiming READY behind it would be a lie, so
+            // fall back to the full teardown this button used to do.
+            cancelDictation(clearComposingText = true, reason = reason)
+            return
+        }
+        Log.i(TAG, "Phrase abandoned ($reason) from $state; socket kept")
+        // Recording is over, so its ceiling goes — and the idle ceiling is
+        // re-armed below, exactly as completeSession does it. Without that pair
+        // an abandoned session would live forever.
+        mainHandler.removeCallbacks(recordingCeilingRunnable)
+        autoStartOnReady = false
+        stoppedByRecordingLimit = false
+        recorder?.stop()
+        recorder = null
+
+        live.clear()
+        if (state == State.FINISHING) abandonedCompletions += 1
+        abandonedItemId = currentItemId ?: abandonedItemId
+        currentItemId = null
+
+        if (partialTranscript.isNotEmpty()) {
+            currentInputConnection?.setComposingText("", 1)
+            currentInputConnection?.finishComposingText()
+        }
+        partialTranscript = StringBuilder()
+        committedChars = 0
+
+        // Same handover as completeSession: the socket is idle again, so the
+        // five minutes start from this moment rather than from openSession.
+        mainHandler.removeCallbacks(warmCeilingRunnable)
+        mainHandler.postDelayed(warmCeilingRunnable, WARM_SESSION_MAX_MS)
+        setState(State.READY, getString(R.string.status_cancelled))
+        setConnectionStates(ConnectionState.OK, ConnectionState.OK)
+    }
+
+    /**
+     * Drops everything [abandonPhrase] remembered. Called by both teardowns:
+     * they bump [generation], which orphans the old transcriber's callbacks
+     * outright, so a leftover [abandonedCompletions] could only ever swallow
+     * the first genuine transcript of the *next* session.
+     */
+    private fun forgetAbandonedPhrases() {
+        currentItemId = null
+        abandonedItemId = null
+        abandonedCompletions = 0
+    }
+
+    /**
      * The single teardown path: closes whatever is open and returns to
      * [State.IDLE]. [reason] is logged so a reconnect can be told apart from a
      * reuse in the logs alone.
+     *
+     * The Cancel button no longer comes here — see [abandonPhrase] — but every
+     * other caller does, and each one of them really does mean "close it".
      */
     private fun cancelDictation(clearComposingText: Boolean, reason: String) {
         // No timer may outlive the session it was armed for. This is the path
@@ -991,6 +1132,7 @@ class LiveTypeImeService : InputMethodService() {
         generation += 1
         autoStartOnReady = false
         stoppedByRecordingLimit = false
+        forgetAbandonedPhrases()
         recorder?.stop()
         recorder = null
         transcriber?.clear()
@@ -1020,6 +1162,7 @@ class LiveTypeImeService : InputMethodService() {
         generation += 1
         autoStartOnReady = false
         stoppedByRecordingLimit = false
+        forgetAbandonedPhrases()
         recorder?.stop()
         recorder = null
         transcriber?.close()

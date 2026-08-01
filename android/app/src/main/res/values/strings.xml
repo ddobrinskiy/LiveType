@@ -32,6 +32,12 @@
     -->
     <string name="status_stopped_time_limit">Stopped after %1$s — recording limit reached</string>
     <string name="status_no_speech">No speech recognised</string>
+    <!--
+        Cancel abandons the phrase, not the session: the socket stays open and
+        the state is READY, so the line has to say both "that one is gone" and
+        "you can start again right now". Not an error, so no red and no icon.
+    -->
+    <string name="status_cancelled">Cancelled — ready to dictate</string>
     <string name="status_error">Error</string>
     <string name="status_setup_needed">Setup required</string>
 

@@ -179,6 +179,22 @@ tell it the session had died. Only the paths that actually destroy the
 transcriber bump it: `cancelDictation`, `failSession`, and the idle/grace
 teardowns that go through them.
 
+**Cancel abandons the phrase, not the session.** It used to be the same
+teardown as everything else, so tapping it turned both indicators red and made
+the next dictation reconnect from scratch. `abandonPhrase` is now the mirror of
+`completeSession`: stop the recorder, send `input_audio_buffer.clear`, drop
+`partialTranscript` and `committedChars`, re-arm the idle ceiling, land in
+`READY` with the socket up. It therefore **must not** bump `generation` — by
+the rule above, that would deafen a socket it is keeping — so the in-flight
+phrase is silenced by three narrower guards instead: the cleared buffer means
+uncommitted audio is never transcribed and never billed; deltas are matched
+against the abandoned `item_id` and ignored outside RECORDING / FINISHING; and
+a Cancel pressed in FINISHING, where the commit had already gone out, counts
+one `abandonedCompletions` so that transcript is dropped on arrival (its usage
+is still reported — OpenAI charged for it). With no live transcriber, or with
+no phrase in flight, Cancel falls back to the full `cancelDictation` teardown.
+Every other caller of `cancelDictation` is unchanged.
+
 ### 3.5 The status line must never claim more than is true
 
 `status_ready` is written in exactly one place — when the socket is actually
@@ -397,7 +413,8 @@ is captured into a field so the status line quotes the limit that actually
 applied. Cancellation follows the file's established rule — a named `Runnable`
 and an explicit `removeCallbacks` on **every** route out of `RECORDING`:
 `finishDictation`, `completeSession` (OpenAI can end a turn on its own),
-`cancelDictation` (cancel, keyboard switch, password field, grace and idle
+`abandonPhrase` (the Cancel button, which re-arms the idle ceiling in its
+place), `cancelDictation` (keyboard switch, password field, grace and idle
 teardown, `onDestroy`) and `failSession`.
 
 ---

@@ -56,7 +56,18 @@ model. Hints are trimmed, de-duplicated and clamped (8 languages, 100 keywords,
 |---|---|
 | `android/` | The Kotlin IME. No Compose, no AndroidX — plain views, one dependency (OkHttp). |
 | `worker/` | The Cloudflare Worker that mints ephemeral tokens, plus its Vitest suite. |
+| `data/keywords.txt.age` | The maintainer's personal vocabulary list, encrypted (see below). Nothing needs it. |
+| `scripts/` | `keywords-encrypt.sh` / `keywords-decrypt.sh` for that file. |
 | `AGENTS.md` | Architecture notes, the local dev loop, and hard-won API details. |
+
+**`data/keywords.txt.age` is not a secret you are missing.** It is one person's
+list of jargon that transcription tends to mangle, encrypted with
+[age](https://age-encryption.org) because it is personal and this repo is
+public. Debug builds bake the decrypted list in as the default keyword list;
+without the key you get the stock defaults from `res/values/strings.xml`
+instead, and everything builds and runs exactly the same. Keep your own list by
+writing `data/keywords.txt` (gitignored, one term per line, `#` comments
+allowed) — or just type your terms into the app's **Terms** field.
 
 ## Prerequisites
 
@@ -158,7 +169,9 @@ own key before distributing.
 3. **Device secret** — the same `DEVICE_SECRET` you put in Cloudflare.
 4. **Expected languages** — comma-separated BCP-47-ish codes, e.g. `ru,en`.
 5. **Context** — a free-text prompt describing what you dictate.
-6. **Terms** — domain words the model tends to mangle, one per line.
+6. **Terms** — domain words the model tends to mangle, one per line. Debug
+   builds pre-fill this from `data/keywords.txt` if you keep one; see
+   [Repository layout](#repository-layout).
 7. Save, then **Enable LiveType** (Android input-method settings) and
    **Choose keyboard**.
 

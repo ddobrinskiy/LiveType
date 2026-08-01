@@ -11,6 +11,10 @@ worker/.wrangler/
 *.dev.vars
 local.properties
 
+# Personal vocabulary in the clear. Only the age-encrypted copy
+# (data/keywords.txt.age) is committed — see scripts/keywords-*.sh.
+data/keywords.txt
+
 # Prebuilt APKs are distributed via GitHub Releases, not tracked in git.
 *.apk
 

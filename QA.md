@@ -70,6 +70,9 @@ Last updated: 2026-08-01.
 | 26 | Release cleartext HTTP forbidden; debug allows loopback only | partial — aapt2 on both APKs | — | |
 | 27 | `lintVitalRelease` passes, release APK builds | partial — `assembleRelease` succeeds | — | |
 | 28 | CI workflow (worker tests + Android build) | no — never run on a real runner | — | |
+| 31 | Debug build bakes in `data/keywords.txt`; release gets `""` | partial — generated `BuildConfig` for both types, plus a probe term grepped in both APKs (debug 1, release 0). **Never seen on a phone** — same clean-install gap as #24 | | |
+| 32 | Missing `data/keywords.txt` does not break the build | partial — file moved away, `assembleDebug` green, `DEFAULT_KEYWORDS = ""` | — | |
+| 33 | `age` round-trip of the keyword list | partial — encrypted, then decrypted with the real identity, `diff` clean | — | |
 
 ## In progress
 
@@ -88,7 +91,8 @@ Things below are **not** verified and should not be assumed working.
    endpoint and secret in, but the phone already had saved settings, so the
    defaults path never actually ran. Testing it needs
    `adb shell pm clear dev.dobrinskiy.livetype`, which also wipes the user's
-   prompt and keywords.
+   prompt and keywords. The same gap covers #31: the baked keyword list is a
+   default, so it only shows up on a phone with no saved keyword list.
 2. **The silenced-mic UI (#17) has never been seen.** The detection itself is
    confirmed working (#16 — the user saw the message), but the red text and
    warning icon landed afterwards and nobody has looked at that state since.

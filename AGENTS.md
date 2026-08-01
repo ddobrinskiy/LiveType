@@ -149,8 +149,11 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 **Debug builds configure themselves** — nothing to type. See
 [Debug vs release configuration](#debug-vs-release-configuration). Set
-languages, prompt and keywords as desired; the endpoint and device secret are
-already filled in.
+languages and prompt as desired; the endpoint, device secret and keyword list
+are already filled in. The keywords come from `data/keywords.txt` — but only
+until you press Save, after which the stored list wins and a rebuild will not
+change it. Clear the app's data (or edit the list on the phone) to pick up a
+new baked default.
 
 Release builds start blank and must be configured by hand:
 - **Token endpoint**: your deployed worker's `https://.../token`
@@ -186,13 +189,14 @@ miniflare's own timers keep running.
 
 ## Debug vs release configuration
 
-`android/app/build.gradle.kts` reads `worker/.dev.vars` at configuration time
-and exposes two `buildConfigField`s. They differ per build type:
+`android/app/build.gradle.kts` reads `worker/.dev.vars` and `data/keywords.txt`
+at configuration time and exposes three `buildConfigField`s. They differ per
+build type:
 
-| | `BuildConfig.DEFAULT_TOKEN_ENDPOINT` | `BuildConfig.DEFAULT_DEVICE_SECRET` |
-|---|---|---|
-| **debug** | `http://127.0.0.1:8787/token` | `DEVICE_SECRET` from `worker/.dev.vars` |
-| **release** | `""` | `""` |
+| | `DEFAULT_TOKEN_ENDPOINT` | `DEFAULT_DEVICE_SECRET` | `DEFAULT_KEYWORDS` |
+|---|---|---|---|
+| **debug** | `http://127.0.0.1:8787/token` | `DEVICE_SECRET` from `worker/.dev.vars` | `data/keywords.txt`, parsed |
+| **release** | `""` | `""` | `""` |
 
 `AppSettings.load()` uses them as the `SharedPreferences` **defaults only**. A
 value the user saved always wins — the baked values never overwrite stored
@@ -207,12 +211,55 @@ Rules the build enforces:
 - **Release gets literal empty strings**, not "whatever was parsed". The parse
   result is wired to the debug build type only.
 
-### The debug APK contains the device secret — do not distribute it
+### The keyword list lives in `data/`, encrypted
+
+The custom vocabulary sent to OpenAI as transcription hints is maintained by
+hand in **`data/keywords.txt`** — one term per line, `#` comments and blank
+lines allowed, duplicates dropped. It is **gitignored**: it is personal
+vocabulary and this repo is meant to be public. What gets committed is
+**`data/keywords.txt.age`**, the same content encrypted to
+`age1aqdf22l6p03g408sg9m9jxu6hwmml0vn9sr7jukff0ty35dwsuuswv9ak4`.
+
+```bash
+./scripts/keywords-encrypt.sh    # data/keywords.txt -> data/keywords.txt.age; commit the .age
+./scripts/keywords-decrypt.sh    # the reverse, on a fresh clone; needs the private identity
+```
+
+Encrypting needs the **public** recipient only — no private key is read.
+Decrypting reads the identity at `~/.config/chezmoi/key.txt`, overridable with
+`LIVETYPE_AGE_IDENTITY`. Both scripts fail loudly if `age` is missing, the input
+file is absent, or the identity does not exist; decrypt also refuses to
+overwrite an existing plaintext without `--force`, and takes an output path so
+you can round-trip into `/tmp` without touching your working copy. age output is
+randomised, so the `.age` file differs on every run even when nothing changed.
+
+Rules, same shape as the `.dev.vars` ones above:
+
+- **A missing `data/keywords.txt` is not a build error.** Fresh clones and CI
+  only have the `.age` file; `DEFAULT_KEYWORDS` falls back to `""` and
+  `AppSettings.load()` then falls back to `R.string.default_keywords`, exactly
+  as release does.
+- **Only a `SharedPreferences` default.** A list edited on the phone wins, and a
+  list deliberately cleared stays cleared.
+- The build reads the file through `providers.fileContents(...)`, so it is a
+  tracked configuration input: editing the list prints
+  `configuration cache cannot be reused because file '../data/keywords.txt' has
+  changed` rather than baking a stale list into the APK.
+- `javaStringLiteral()` escapes `\`, `"`, newline, CR and tab, because
+  `buildConfigField` pastes its argument into `BuildConfig.java` verbatim and
+  the list is multi-line.
+
+### The debug APK contains the device secret and your keyword list — do not distribute it
 
 Baking the secret in trades secrecy for convenience on a phone you own and
 install to over `adb`. The consequence is unavoidable: `app-debug.apk` has the
 secret in plaintext inside `classes*.dex`, and anyone holding that APK can mint
 tokens against your worker.
+
+The same APK also carries `data/keywords.txt` in the clear, for the same reason.
+Encrypting the list in git and then handing out a debug APK that contains it
+would defeat the point — the list is personal vocabulary, so treat the debug APK
+as being as private as the plaintext file.
 
 - Never attach a debug APK to a GitHub Release, an issue, a chat, or a bug
   report. Ship `assembleRelease` output only.
@@ -232,6 +279,20 @@ strings app/build/outputs/apk/debug/app-debug.apk | grep -cF "$SECRET"  # expect
 
 The debug check is the control: if it does not find the secret, the release
 check proves nothing about your grep.
+
+The keyword list needs the same control, and a term that is **not** already in
+`res/values/strings.xml` — the stock defaults ship in both APKs by definition,
+so grepping for `Tonkeeper` proves nothing. Add a nonsense probe term to
+`data/keywords.txt`, rebuild both, then remove it:
+
+```bash
+PROBE=Zzqxleakprobe                      # add this line to data/keywords.txt first
+cd android && ANDROID_HOME=$HOME/Library/Android/sdk ./gradlew assembleDebug assembleRelease
+strings app/build/outputs/apk/debug/app-debug.apk | grep -c "$PROBE"              # expect 1
+strings app/build/outputs/apk/release/app-release-unsigned.apk | grep -c "$PROBE" # expect 0
+```
+
+Verified this way on 2026-08-01: debug 1, release 0.
 
 ## Logging
 

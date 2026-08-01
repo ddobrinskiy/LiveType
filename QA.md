@@ -30,7 +30,7 @@ Last updated: 2026-08-01.
 |---|---|---|---|---|---|
 | 1 | Connection indicators moved left, above the status line | device | | | yes |
 | 2 | Red + `!` badge when a connection is down, green when up, spinner while connecting | device | | | yes (fixed: `connectRealtime` now sets the OpenAI indicator to `LOADING`, and `IDLE` no longer borrows the red `!`) |
-| 3 | Tap an indicator → popup with its state | device | yes | **yes** | yes |
+| 3 | Tap an indicator → popup with its state | device — regressed twice (touch target, then Toast z-order), now a PopupWindow | yes | **yes** | yes |
 | 4 | Recognised text no longer mirrored in the keyboard | device | yes | **yes** | yes |
 | 5 | Background `#E0EAEC`, dark strip removed | device | yes | **yes** | yes |
 | 6 | System `⌄` / globe glyphs forced dark | device | yes | **yes** | yes |
@@ -136,7 +136,7 @@ needs a fix and then a re-test — none of these has been verified as working.
 
 | # | Bug | How it was found | Fixed? | Re-tested? |
 |---|---|---|---|---|
-| B1 | **The OpenAI indicator never shows the spinner.** It goes `IDLE → OK`, skipping `LOADING`, and `IDLE` renders as the red `!` that everywhere else means *failed*. So the entire OpenAI connect — the slow leg — looks like an error. The token-server indicator does spin, which is why this passed a glance. One line in `connectRealtime()`. The unread `INDICATOR_IDLE` constant is the same bug's other half. | code audit against `main`; `git log -S` shows the `LOADING` call was never written, not lost in a merge | **yes** | no |
+| B1 | ~~**The OpenAI indicator never shows the spinner.**~~ **Fixed and confirmed on device.** It goes `IDLE → OK`, skipping `LOADING`, and `IDLE` renders as the red `!` that everywhere else means *failed*. So the entire OpenAI connect — the slow leg — looks like an error. The token-server indicator does spin, which is why this passed a glance. One line in `connectRealtime()`. The unread `INDICATOR_IDLE` constant is the same bug's other half. | code audit against `main`; `git log -S` shows the `LOADING` call was never written, not lost in a merge | **yes** | no |
 | B2 | ~~**`wrangler.jsonc` still has `"database_id": "REPLACE_WITH_ID_FROM_WRANGLER_D1_CREATE"`.**~~ **Fixed** 2026-08-01: `wrangler d1 create livetype-usage` returned `850f00b2-d22f-49ff-bcdb-f0eca6f087da` (region WEUR) and that id is now in the file. | code audit | **yes** | partial — the id is proven correct against the real database (`d1 migrations apply --remote` and a `sqlite_master` query both hit it and report `served_by_region: WEUR`), but it has **not** been exercised through a deployed worker's `DB` binding, because the deploy is blocked (row 43) |
 | B3 | **A reused session can outlive OpenAI's own server-side session limit.** Now that one socket serves many phrases, it may hit the server's maximum and close, surfacing as a red "connection closed" where the old per-phrase reconnect quietly hid it. Not observed yet; it is a new failure surface created by multi-phrase reuse. | reasoning by the agent that implemented reuse | no | no |
 | B4 | **Behaviour during a long silenced-microphone gap is unknown.** We now report the silencing honestly, but OpenAI may end the turn on its own during the silence, and nothing in the UI would reveal that. | reasoning; never reproduced | no | no |

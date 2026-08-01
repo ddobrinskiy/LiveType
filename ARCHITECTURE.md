@@ -183,8 +183,11 @@ recorder or a call takes it, `AudioRecord` does not fail — it returns silence,
 so the app would stream nothing while looking healthy.
 
 `AudioRecordingCallback` + `isClientSilenced()` (API 29; guarded, minSdk is 28)
-detect this. It is surfaced as a red status plus a warning icon and **must not
-route through `failSession`** — the session stays up and recovers automatically
+detect this. It is surfaced as a red status, a warning icon and a red record
+button — all three driven by `setState`'s generic `warning` flag, which writes
+the ordinary appearance back unconditionally, so recovery cannot depend on some
+specific path remembering to undo the red. It **must not route through
+`failSession`** — the session stays up and recovers automatically
 when the mic returns. Registration also seeds from
 `activeRecordingConfigurations`, because registering does not replay current
 state and a mic already taken before recording started would otherwise go

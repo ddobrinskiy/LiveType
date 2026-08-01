@@ -63,7 +63,11 @@ object AppSettings {
         val preferences = context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
         val defaultLanguages = context.getString(R.string.default_languages)
         val defaultPrompt = context.getString(R.string.default_prompt)
-        val defaultKeywords = context.getString(R.string.default_keywords)
+        // Debug builds bake in data/keywords.txt (the version-controlled
+        // vocabulary list); release builds get "" and fall back to resources.
+        val defaultKeywords = BuildConfig.DEFAULT_KEYWORDS.ifBlank {
+            context.getString(R.string.default_keywords)
+        }
         return LiveTypeSettings(
             // BuildConfig defaults are the debug build's baked-in dev credentials
             // (empty in release). Only a default: anything the user saved wins,

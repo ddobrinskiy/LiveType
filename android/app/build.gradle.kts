@@ -26,8 +26,46 @@ fun readDevVar(name: String): String {
         .orEmpty()
 }
 
-fun javaStringLiteral(value: String): String =
-    "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+// buildConfigField pastes its value into BuildConfig.java verbatim, so anything
+// going in has to be a valid Java string literal. Newlines matter here: the
+// keyword list is multi-line, and a raw \n would end the literal mid-statement
+// and break compilation.
+fun javaStringLiteral(value: String): String = buildString {
+    append('"')
+    for (character in value) {
+        when (character) {
+            '\\' -> append("\\\\")
+            '"' -> append("\\\"")
+            '\n' -> append("\\n")
+            '\r' -> append("\\r")
+            '\t' -> append("\\t")
+            else -> append(character)
+        }
+    }
+    append('"')
+}
+
+// Debug convenience #2: bake the maintained vocabulary list into debug builds
+// as the default keywords, so a fresh install already knows the terms. Same
+// rules as DEVICE_SECRET — debug only, and a missing file is not an error.
+//
+// data/keywords.txt is gitignored (personal vocabulary, public repo); only
+// data/keywords.txt.age is committed. See scripts/keywords-{en,de}crypt.sh.
+//
+// providers.fileContents() is what makes the value fresh: it registers the file
+// as a configuration-time input, so editing the list invalidates Gradle's
+// configuration cache instead of silently baking a stale list into the APK.
+// A plain File.readText() here would not be tracked.
+val keywordsFile = rootProject.layout.projectDirectory.file("../data/keywords.txt")
+
+val debugKeywords: String = providers.fileContents(keywordsFile).asText.orNull
+    ?.lineSequence()
+    ?.map(String::trim)
+    // '#' comments and blank lines exist so a human can annotate the file.
+    ?.filterNot { it.isEmpty() || it.startsWith("#") }
+    ?.distinct()
+    ?.joinToString("\n")
+    .orEmpty()
 
 val debugDeviceSecret = readDevVar("DEVICE_SECRET")
 val debugTokenEndpoint = "http://127.0.0.1:8787/token"
@@ -60,12 +98,15 @@ android {
         getByName("debug") {
             buildConfigField("String", "DEFAULT_TOKEN_ENDPOINT", javaStringLiteral(debugTokenEndpoint))
             buildConfigField("String", "DEFAULT_DEVICE_SECRET", javaStringLiteral(debugDeviceSecret))
+            buildConfigField("String", "DEFAULT_KEYWORDS", javaStringLiteral(debugKeywords))
         }
         getByName("release") {
             isMinifyEnabled = false
-            // Release ships no baked credentials — configured by hand on device.
+            // Release ships no baked credentials and no personal vocabulary —
+            // configured by hand on device.
             buildConfigField("String", "DEFAULT_TOKEN_ENDPOINT", "\"\"")
             buildConfigField("String", "DEFAULT_DEVICE_SECRET", "\"\"")
+            buildConfigField("String", "DEFAULT_KEYWORDS", "\"\"")
         }
     }
 

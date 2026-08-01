@@ -111,5 +111,7 @@
     <!-- Defaults seeded into settings on first run -->
     <string name="default_languages">ru,en</string>
     <string name="default_prompt">Dictation of messages and technical notes. Keep punctuation, English product names and the speaker\'s original language.</string>
+    <!-- Fallback only. The real vocabulary is data/keywords.txt, baked into
+         debug builds via BuildConfig.DEFAULT_KEYWORDS; this never carries personal terms. -->
     <string name="default_keywords" translatable="false">OpenAI\nChatGPT\nAndroid\nCloudflare\nWebSocket</string>
 </resources>

@@ -212,15 +212,41 @@ it unfit for a counter.
 |---|---|---|
 | `BuildConfig.DEFAULT_TOKEN_ENDPOINT` | `http://127.0.0.1:8787/token` | `""` |
 | `BuildConfig.DEFAULT_DEVICE_SECRET` | read from `worker/.dev.vars` | `""` |
+| `BuildConfig.DEFAULT_KEYWORDS` | read from `data/keywords.txt` | `""` |
 | Cleartext HTTP | loopback only (`src/debug` network config) | forbidden |
 | `isAllowedTokenEndpoint()` | `https://` or `http://` | `https://` only |
 
 Baked values are `SharedPreferences` **defaults only** — a saved value always
-wins. A missing `worker/.dev.vars` is not a build error (fresh clones, CI).
+wins. A missing `worker/.dev.vars` or `data/keywords.txt` is not a build error
+(fresh clones, CI); release behaviour is the fallback in that case.
 
-**The debug APK therefore contains `DEVICE_SECRET` in plaintext and must never
-be distributed.** `*.apk` is gitignored for this reason. Verified by grepping
-the dex of both APKs, with the debug APK as the positive control.
+**The debug APK therefore contains `DEVICE_SECRET` and the keyword list in
+plaintext and must never be distributed.** `*.apk` is gitignored for this
+reason. Verified by grepping the dex of both APKs, with the debug APK as the
+positive control.
+
+### 3.9.1 The keyword list is version-controlled, encrypted
+
+Custom vocabulary (transcription hints) used to exist only as text typed into
+the app's settings on one phone — unbacked-up and unreviewable. It now lives in
+`data/keywords.txt`: one term per line, `#` comments, hand-maintained in an
+editor.
+
+The repo is intended to go public, and a personal vocabulary list is not
+something to publish. So the plaintext is **gitignored** and only
+`data/keywords.txt.age` — encrypted with `age` to the user's public key — is
+committed. Encryption needs the public recipient only, so any session or CI job
+can re-encrypt; only the user can decrypt. `scripts/keywords-{en,de}crypt.sh`
+wrap both directions so the invocation never has to be remembered.
+
+Rejected alternatives: committing the list in the clear (the point was to not
+publish it); `git-crypt`/SOPS (heavier, and the user already keeps an age
+identity for chezmoi); an encrypted blob read at runtime by the app (the phone
+would need the private key).
+
+The Gradle side reads it via `providers.fileContents()` rather than
+`File.readText()`, so the file is a tracked configuration input and a changed
+list cannot survive as a stale cached value.
 
 ### 3.10 Feature flags instead of deleting or commenting out
 

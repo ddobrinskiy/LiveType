@@ -70,6 +70,9 @@ Last updated: 2026-08-01.
 | 26 | Release cleartext HTTP forbidden; debug allows loopback only | partial — aapt2 on both APKs | — | |
 | 27 | `lintVitalRelease` passes, release APK builds | partial — `assembleRelease` succeeds | — | |
 | 28 | CI workflow (worker tests + Android build) | no — never run on a real runner | — | |
+| 31 | Debug build bakes in `data/keywords.txt`; release gets `""` | partial — generated `BuildConfig` for both types, plus a probe term grepped in both APKs (debug 1, release 0). **Never seen on a phone** — same clean-install gap as #24 | | |
+| 32 | Missing `data/keywords.txt` does not break the build | partial — file moved away, `assembleDebug` green, `DEFAULT_KEYWORDS = ""` | — | |
+| 33 | `age` round-trip of the keyword list | partial — encrypted, then decrypted with the real identity, `diff` clean | — | |
 
 ## In progress
 

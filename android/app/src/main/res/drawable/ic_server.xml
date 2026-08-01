@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Two stacked rack units with a status LED each — the Cloudflare Worker that
+    mints the ephemeral token. Tinted at runtime via ImageView#setColorFilter.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- upper unit -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M4,3h16a2,2 0 0 1 2,2v4a2,2 0 0 1 -2,2H4a2,2 0 0 1 -2,-2V5a2,2 0 0 1 2,-2zM4,5v4h16V5H4z" />
+    <!-- upper LED -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M6.5,7m-1.1,0a1.1,1.1 0 1 1 2.2,0a1.1,1.1 0 1 1 -2.2,0" />
+    <!-- lower unit -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M4,13h16a2,2 0 0 1 2,2v4a2,2 0 0 1 -2,2H4a2,2 0 0 1 -2,-2v-4a2,2 0 0 1 2,-2zM4,15v4h16v-4H4z" />
+    <!-- lower LED -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M6.5,17m-1.1,0a1.1,1.1 0 1 1 2.2,0a1.1,1.1 0 1 1 -2.2,0" />
+</vector>

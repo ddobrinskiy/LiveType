@@ -1,0 +1,19 @@
+# Build output
+.gradle/
+**/build/
+worker/node_modules/
+worker/.wrangler/
+
+# Secrets — never commit. Path-independent on purpose: a stray copy of
+# .dev.vars in any directory must stay untracked.
+.dev.vars
+*.dev.vars
+local.properties
+
+# Prebuilt APKs are distributed via GitHub Releases, not tracked in git.
+*.apk
+
+# IDE / OS
+.idea/
+*.iml
+.DS_Store

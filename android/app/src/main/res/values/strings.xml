@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Default locale: English. Any device locale other than Russian falls back
+    here automatically. Russian lives in values-ru/strings.xml.
+-->
+<resources>
+    <string name="app_name">LiveType</string>
+    <string name="ime_name">LiveType Voice Input</string>
+    <string name="app_tagline">Voice input via OpenAI gpt-live-transcribe</string>
+
+    <!-- Keyboard status line -->
+    <string name="status_ready">Ready to dictate</string>
+    <string name="status_password_field">Dictation is disabled in password fields</string>
+    <string name="status_getting_key">Getting a temporary key…</string>
+    <string name="status_connecting_openai">Connecting to OpenAI…</string>
+    <string name="status_listening">Speak — text appears as it is recognised</string>
+    <string name="status_finishing">Finishing the phrase…</string>
+    <string name="status_done">Done</string>
+    <string name="status_no_speech">No speech recognised</string>
+    <string name="status_error">Error</string>
+    <string name="status_setup_needed">Setup required</string>
+
+    <!-- Keyboard errors -->
+    <string name="error_field_unavailable">Dictation is not available in this field</string>
+    <string name="error_no_mic_permission">Open LiveType settings and allow the microphone</string>
+    <string name="error_not_configured">Set the Worker URL and device secret in settings</string>
+    <string name="error_token_failed">Could not get a key</string>
+    <string name="error_openai_closed">The OpenAI connection closed</string>
+    <string name="error_mic_start">Could not start the microphone</string>
+    <string name="error_closed_before_commit">The connection closed before the phrase was sent</string>
+
+    <!-- Keyboard controls -->
+    <string name="action_cancel">Cancel</string>
+    <string name="action_settings">Settings</string>
+    <string name="cd_previous_keyboard">Switch back to the previous keyboard</string>
+    <string name="cd_start_dictation">Start dictation</string>
+    <string name="cd_stop_dictation">Finish dictation</string>
+    <string name="cd_connecting">Connecting</string>
+    <string name="cd_transcribing">Transcribing</string>
+    <string name="cd_newline">Insert a line break</string>
+
+    <!-- Connection indicators -->
+    <string name="indicator_server">Token server</string>
+    <string name="indicator_openai">OpenAI Realtime</string>
+    <string name="connection_ok">Successfully connected</string>
+    <string name="connection_error">Error loading</string>
+    <string name="connection_loading">Connecting…</string>
+    <string name="connection_toast">%1$s: %2$s</string>
+
+    <!-- Settings screen -->
+    <string name="action_allow_mic">Allow microphone</string>
+    <string name="action_enable_livetype">Enable LiveType</string>
+    <string name="action_pick_keyboard">Choose keyboard</string>
+    <string name="section_connection">Connection</string>
+    <string name="section_recognition">Recognition</string>
+    <string name="label_worker_endpoint">Worker token endpoint</string>
+    <string name="label_device_secret">Device secret</string>
+    <string name="label_languages">Expected languages, comma separated</string>
+    <string name="label_context">Context</string>
+    <string name="label_keywords">Terms, one per line</string>
+    <string name="hint_endpoint">https://your-worker.workers.dev/token</string>
+    <string name="hint_device_secret">DEVICE_SECRET</string>
+    <string name="checkbox_return_keyboard">Return to the previous keyboard after dictation</string>
+    <string name="action_save_settings">Save settings</string>
+    <string name="privacy_note">You do not enter your main OpenAI API key here. It is stored only in the Cloudflare Worker. LiveType keeps no dictation history.</string>
+    <string name="error_need_url">An HTTPS or HTTP URL is required</string>
+    <string name="error_secret_short">Use a random secret of at least 16 characters</string>
+    <string name="error_need_language">Specify at least one language</string>
+    <string name="toast_settings_saved">Settings saved</string>
+    <string name="permission_granted">✓ Microphone access granted</string>
+    <string name="permission_missing">Allow the app to use the microphone first.</string>
+
+    <!-- Defaults seeded into settings on first run -->
+    <string name="default_languages">en</string>
+    <string name="default_prompt">Dictation of messages and technical notes. Keep punctuation, English product names and the speaker\'s original language.</string>
+    <string name="default_keywords">OpenAI\nChatGPT\nAndroid\nCloudflare\nWebSocket</string>
+</resources>

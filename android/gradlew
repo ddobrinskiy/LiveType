@@ -1,0 +1,25 @@
+#!/usr/bin/env sh
+set -eu
+
+GRADLE_VERSION="8.9"
+GRADLE_ROOT="${GRADLE_USER_HOME:-$HOME/.gradle}/livetype-bootstrap"
+GRADLE_DIR="$GRADLE_ROOT/gradle-$GRADLE_VERSION"
+ARCHIVE="$GRADLE_ROOT/gradle-$GRADLE_VERSION-bin.zip"
+
+if [ ! -x "$GRADLE_DIR/bin/gradle" ]; then
+  mkdir -p "$GRADLE_ROOT"
+  if [ ! -f "$ARCHIVE" ]; then
+    if command -v curl >/dev/null 2>&1; then
+      curl -fL "https://services.gradle.org/distributions/gradle-$GRADLE_VERSION-bin.zip" -o "$ARCHIVE"
+    elif command -v wget >/dev/null 2>&1; then
+      wget -O "$ARCHIVE" "https://services.gradle.org/distributions/gradle-$GRADLE_VERSION-bin.zip"
+    else
+      echo "Install curl or wget, or run the project from Android Studio." >&2
+      exit 1
+    fi
+  fi
+  unzip -q -o "$ARCHIVE" -d "$GRADLE_ROOT"
+fi
+
+exec "$GRADLE_DIR/bin/gradle" "$@"
+

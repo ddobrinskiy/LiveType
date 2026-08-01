@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Russian. Used when the device locale is Russian; otherwise values/ (English) applies. -->
+<resources>
+    <string name="app_tagline">Голосовой ввод через OpenAI gpt-live-transcribe</string>
+
+    <!-- Keyboard status line -->
+    <string name="status_ready">Готово к диктовке</string>
+    <string name="status_password_field">Запись отключена в поле пароля</string>
+    <string name="status_getting_key">Получаю временный ключ…</string>
+    <string name="status_connecting_openai">Подключаюсь к OpenAI…</string>
+    <string name="status_listening">Говори — текст появится по мере распознавания</string>
+    <string name="status_finishing">Завершаю фразу…</string>
+    <string name="status_done">Готово</string>
+    <string name="status_no_speech">Речь не распознана</string>
+    <string name="status_error">Ошибка</string>
+    <string name="status_setup_needed">Нужна настройка</string>
+
+    <!-- Keyboard errors -->
+    <string name="error_field_unavailable">В этом поле запись недоступна</string>
+    <string name="error_no_mic_permission">Сначала открой настройки LiveType и разреши микрофон</string>
+    <string name="error_not_configured">Укажи Worker URL и Device secret в настройках</string>
+    <string name="error_token_failed">Не удалось получить ключ</string>
+    <string name="error_openai_closed">Соединение с OpenAI закрылось</string>
+    <string name="error_mic_start">Не удалось запустить микрофон</string>
+    <string name="error_closed_before_commit">Соединение закрылось до отправки фразы</string>
+
+    <!-- Keyboard controls -->
+    <string name="action_cancel">Отмена</string>
+    <string name="action_settings">Настройки</string>
+    <string name="cd_previous_keyboard">Вернуться к предыдущей клавиатуре</string>
+    <string name="cd_start_dictation">Начать диктовку</string>
+    <string name="cd_stop_dictation">Завершить диктовку</string>
+    <string name="cd_connecting">Подключение</string>
+    <string name="cd_transcribing">Распознаю</string>
+    <string name="cd_newline">Перенос на следующую строку</string>
+
+    <!-- Connection indicators -->
+    <string name="indicator_server">Сервер токенов</string>
+    <string name="connection_ok">Соединение установлено</string>
+    <string name="connection_error">Ошибка подключения</string>
+    <string name="connection_loading">Подключаюсь…</string>
+
+    <!-- Settings screen -->
+    <string name="action_allow_mic">Разрешить микрофон</string>
+    <string name="action_enable_livetype">Включить LiveType</string>
+    <string name="action_pick_keyboard">Выбрать клавиатуру</string>
+    <string name="section_connection">Подключение</string>
+    <string name="section_recognition">Распознавание</string>
+    <string name="label_languages">Ожидаемые языки через запятую</string>
+    <string name="label_context">Контекст</string>
+    <string name="label_keywords">Термины, по одному на строку</string>
+    <string name="checkbox_return_keyboard">После распознавания вернуться к предыдущей клавиатуре</string>
+    <string name="action_save_settings">Сохранить настройки</string>
+    <string name="privacy_note">Основной OpenAI API key вводить сюда не нужно. Он хранится только в Cloudflare Worker. LiveType не сохраняет историю диктовок.</string>
+    <string name="error_need_url">Нужен HTTPS или HTTP URL</string>
+    <string name="error_secret_short">Используй случайный секрет длиной хотя бы 16 символов</string>
+    <string name="error_need_language">Укажи хотя бы один язык</string>
+    <string name="toast_settings_saved">Настройки сохранены</string>
+    <string name="permission_granted">✓ Доступ к микрофону разрешён</string>
+    <string name="permission_missing">Сначала разреши приложению использовать микрофон.</string>
+
+    <!-- Defaults seeded into settings on first run -->
+    <string name="default_languages">ru,en</string>
+    <string name="default_prompt">Диктовка сообщений и технических заметок. Сохраняй пунктуацию, английские названия продуктов и исходный язык говорящего.</string>
+</resources>

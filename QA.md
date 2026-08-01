@@ -104,6 +104,20 @@ Last updated: 2026-08-01.
 Row 37 is the one that actually proves it. Deploying alone is not enough — with
 the tunnel still up the phone can keep hitting localhost and look fine.
 
+## Bugs found, not yet fixed
+
+Defects discovered during this session that are still live on `main`. Each
+needs a fix and then a re-test — none of these has been verified as working.
+
+| # | Bug | How it was found | Fixed? | Re-tested? |
+|---|---|---|---|---|
+| B1 | **The OpenAI indicator never shows the spinner.** It goes `IDLE → OK`, skipping `LOADING`, and `IDLE` renders as the red `!` that everywhere else means *failed*. So the entire OpenAI connect — the slow leg — looks like an error. The token-server indicator does spin, which is why this passed a glance. One line in `connectRealtime()`. The unread `INDICATOR_IDLE` constant is the same bug's other half. | code audit against `main`; `git log -S` shows the `LOADING` call was never written, not lost in a merge | no | no |
+| B2 | **`wrangler.jsonc` still has `"database_id": "REPLACE_WITH_ID_FROM_WRANGLER_D1_CREATE"`.** Harmless locally — `wrangler dev` fabricates its own D1 and ignores the field, which is why billing works on the laptop — but a deploy would bind the worker to nothing. Blocks rows 36/37. | code audit | no | no |
+| B3 | **A reused session can outlive OpenAI's own server-side session limit.** Now that one socket serves many phrases, it may hit the server's maximum and close, surfacing as a red "connection closed" where the old per-phrase reconnect quietly hid it. Not observed yet; it is a new failure surface created by multi-phrase reuse. | reasoning by the agent that implemented reuse | no | no |
+| B4 | **Behaviour during a long silenced-microphone gap is unknown.** We now report the silencing honestly, but OpenAI may end the turn on its own during the silence, and nothing in the UI would reveal that. | reasoning; never reproduced | no | no |
+| B5 | **The dictation prompt reverted to English.** `pm clear` reset it to the English default because the device locale is English; it had been the Russian wording. Same instruction semantically, but not the user's setting. `adb shell input text` cannot type Cyrillic, so restoring it needs a few taps by hand. | observed after the clean-install test | no | — |
+| B6 | **Status text is indented ~24dp relative to the indicators.** The warning-icon slot is reserved permanently so the line cannot jump when the icon appears; the cost is that the text no longer aligns with the icons above it. Cosmetic. | observed on device | no | — |
+
 ## Known gaps
 
 Things below are **not** verified and should not be assumed working.

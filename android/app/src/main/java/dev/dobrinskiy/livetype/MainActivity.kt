@@ -13,15 +13,20 @@ import android.provider.Settings
 import android.text.InputType
 import android.view.Gravity
 import android.view.View
+import android.view.ViewGroup
 import android.view.inputmethod.InputMethodManager
+import android.widget.AdapterView
+import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
+import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
 import dev.dobrinskiy.livetype.config.AppSettings
+import dev.dobrinskiy.livetype.config.EndpointMode
 import dev.dobrinskiy.livetype.config.FeatureFlags
 import dev.dobrinskiy.livetype.config.LiveTypeSettings
 import dev.dobrinskiy.livetype.config.isAllowedTokenEndpoint
@@ -44,6 +49,22 @@ class MainActivity : Activity() {
     private lateinit var keywordsInput: EditText
     private lateinit var returnCheck: CheckBox
     private lateinit var permissionStatus: TextView
+
+    /**
+     * Null in release builds, which never show the dropdown and keep the
+     * endpoint a plain typed field — see [EndpointMode.isSelectable].
+     */
+    private var endpointModeSpinner: Spinner? = null
+
+    /** The mode currently shown. Release builds leave it at the default. */
+    private var endpointMode: EndpointMode = EndpointMode.default()
+
+    /**
+     * The last URL typed while on [EndpointMode.CUSTOM]. Switching to a derived
+     * mode overwrites the field, so the typed value is parked here and offered
+     * back on the way in instead of being silently destroyed.
+     */
+    private var customEndpoint: String = ""
 
     private lateinit var billingStatus: TextView
     private lateinit var billingPrice: TextView
@@ -120,6 +141,12 @@ class MainActivity : Activity() {
             hint = getString(R.string.hint_endpoint),
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI,
         )
+        // Debug builds pick the worker from a list; release builds get the bare
+        // field they have always had, with the URL typed by hand.
+        if (EndpointMode.isSelectable) {
+            content.addView(label(getString(R.string.label_endpoint_mode)))
+            content.addView(buildEndpointModeSpinner())
+        }
         content.addView(label(getString(R.string.label_worker_endpoint)))
         content.addView(endpointInput)
 
@@ -176,6 +203,60 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun buildEndpointModeSpinner(): Spinner {
+        val modeAdapter = EndpointModeAdapter()
+        val spinner = Spinner(this).apply {
+            adapter = modeAdapter
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            )
+            onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+                override fun onItemSelected(
+                    parent: AdapterView<*>?,
+                    view: View?,
+                    position: Int,
+                    id: Long,
+                ) {
+                    val mode = modeAdapter.getItem(position) ?: return
+                    // The adapter already refuses to enable an unavailable row;
+                    // this catches the programmatic path, including the initial
+                    // selection landing on PROD before the stored mode is applied.
+                    if (!mode.isAvailable) {
+                        setSelection(modeAdapter.getPosition(endpointMode))
+                        return
+                    }
+                    selectEndpointMode(mode)
+                }
+
+                override fun onNothingSelected(parent: AdapterView<*>?) = Unit
+            }
+        }
+        endpointModeSpinner = spinner
+        return spinner
+    }
+
+    /**
+     * Applies a mode to the endpoint field. A mode with an implied URL owns the
+     * field — the URL follows from the choice, so it is filled in and locked
+     * rather than typed. CUSTOM hands the field back, restoring the parked URL
+     * if there is one and otherwise keeping whatever is on screen.
+     */
+    private fun selectEndpointMode(mode: EndpointMode) {
+        if (endpointMode == EndpointMode.CUSTOM && mode != EndpointMode.CUSTOM) {
+            customEndpoint = endpointInput.text.toString().trim()
+        }
+        endpointMode = mode
+        val derived = EndpointMode.endpointFor(mode)
+        when {
+            derived != null -> endpointInput.setText(derived)
+            customEndpoint.isNotBlank() -> endpointInput.setText(customEndpoint)
+        }
+        endpointInput.isEnabled = derived == null
+        // The old complaint belonged to the old URL.
+        endpointInput.error = null
+    }
+
     private fun populateSettings() {
         val settings = AppSettings.load(this)
         endpointInput.setText(settings.tokenEndpoint)
@@ -184,10 +265,27 @@ class MainActivity : Activity() {
         promptInput.setText(settings.prompt)
         keywordsInput.setText(settings.keywords.joinToString("\n"))
         returnCheck.isChecked = settings.returnToPreviousKeyboard
+
+        val spinner = endpointModeSpinner
+        if (spinner != null) {
+            // Assign before setSelection: the listener treats a change away
+            // from CUSTOM as "park what is in the field", and at this point the
+            // field holds the stored endpoint, not something the user typed.
+            endpointMode = settings.endpointMode
+            customEndpoint =
+                if (settings.endpointMode == EndpointMode.CUSTOM) settings.tokenEndpoint else ""
+            spinner.setSelection(EndpointMode.entries.indexOf(settings.endpointMode))
+            // The stored endpoint can disagree with the stored mode (a mode
+            // saved before the baked URL changed, say). The mode wins.
+            selectEndpointMode(settings.endpointMode)
+        }
     }
 
     private fun saveSettings() {
-        val endpoint = endpointInput.text.toString().trim()
+        // A derived mode is the authority on its URL, so what gets stored can
+        // never drift from the mode stored beside it. CUSTOM takes the field.
+        val endpoint = EndpointMode.endpointFor(endpointMode)
+            ?: endpointInput.text.toString().trim()
         val secret = secretInput.text.toString()
         val languages = languagesInput.text
             .toString()
@@ -223,8 +321,12 @@ class MainActivity : Activity() {
                     .filter(String::isNotBlank)
                     .toList(),
                 returnToPreviousKeyboard = returnCheck.isChecked,
+                endpointMode = endpointMode,
             ),
         )
+        if (endpointMode == EndpointMode.CUSTOM) {
+            customEndpoint = endpoint
+        }
         Toast.makeText(this, R.string.toast_settings_saved, Toast.LENGTH_SHORT).show()
         // The endpoint or the secret may have just been fixed; the section
         // below is showing the old verdict until it is asked again.
@@ -449,6 +551,59 @@ class MainActivity : Activity() {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == REQUEST_MICROPHONE) {
             updatePermissionStatus()
+        }
+    }
+
+    /**
+     * Lists every mode, including ones that cannot be chosen yet. PROD is shown
+     * greyed out and labelled with the reason rather than hidden: that tells the
+     * reader the plan without pretending the worker is there. `isEnabled` is
+     * what actually blocks the tap; the colour only explains it.
+     */
+    private inner class EndpointModeAdapter : ArrayAdapter<EndpointMode>(
+        this,
+        android.R.layout.simple_spinner_item,
+        EndpointMode.entries.toList(),
+    ) {
+        init {
+            setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        }
+
+        override fun isEnabled(position: Int): Boolean =
+            getItem(position)?.isAvailable ?: false
+
+        override fun getView(position: Int, convertView: View?, parent: ViewGroup): View =
+            super.getView(position, convertView, parent).also {
+                (it as? TextView)?.text = labelOf(position)
+            }
+
+        override fun getDropDownView(
+            position: Int,
+            convertView: View?,
+            parent: ViewGroup,
+        ): View = super.getDropDownView(position, convertView, parent).also { view ->
+            val available = isEnabled(position)
+            (view as? TextView)?.apply {
+                text = labelOf(position)
+                isEnabled = available
+                setTextColor(if (available) Color.rgb(20, 35, 35) else Color.GRAY)
+            }
+        }
+
+        private fun labelOf(position: Int): CharSequence {
+            val mode = getItem(position) ?: return ""
+            val name = getString(
+                when (mode) {
+                    EndpointMode.PROD -> R.string.endpoint_mode_prod
+                    EndpointMode.DEV -> R.string.endpoint_mode_dev
+                    EndpointMode.CUSTOM -> R.string.endpoint_mode_custom
+                },
+            )
+            return if (mode.isAvailable) {
+                name
+            } else {
+                getString(R.string.endpoint_mode_not_deployed, name)
+            }
         }
     }
 

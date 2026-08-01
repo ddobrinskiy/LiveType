@@ -46,8 +46,14 @@ enum class EndpointMode {
         val isSelectable: Boolean
             get() = BuildConfig.DEBUG
 
+        /**
+         * A stored mode that is no longer usable falls back to [default]:
+         * `PROD` could be persisted by a build where it was available (or by a
+         * hand-edited preference), and restoring it would leave the UI on a row
+         * that cannot be selected and an endpoint that resolves to nothing.
+         */
         fun from(name: String?): EndpointMode =
-            entries.firstOrNull { it.name == name } ?: default()
+            entries.firstOrNull { it.name == name }?.takeIf { it.isAvailable } ?: default()
 
         /**
          * Debug builds start on DEV because that is what their baked endpoint

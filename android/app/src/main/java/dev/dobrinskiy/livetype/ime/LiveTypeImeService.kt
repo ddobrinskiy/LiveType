@@ -252,6 +252,14 @@ class LiveTypeImeService : InputMethodService() {
             // that behaves correctly while a composing region is live.
             sendDownUpKeyEvents(KeyEvent.KEYCODE_DEL)
         }
+        // Hold to repeat, escalating to whole words. The click listener above
+        // stays in place and remains the only path a single tap takes.
+        HoldToRepeat.attach(backspaceButton) { stage ->
+            when (stage) {
+                HoldToRepeat.Stage.NORMAL -> sendDownUpKeyEvents(KeyEvent.KEYCODE_DEL)
+                HoldToRepeat.Stage.ACCELERATED -> deleteWordBackwards()
+            }
+        }
         enterButton = createThumbButton(R.drawable.ic_enter, R.string.cd_newline) {
             insertNewline()
         }
@@ -879,6 +887,28 @@ class LiveTypeImeService : InputMethodService() {
             committedChars = partialTranscript.length
         }
         connection.commitText("\n", 1)
+    }
+
+    /**
+     * Deletes the whole word before the cursor — the coarse gear of the held
+     * backspace. Falls back to a single character whenever [WordDelete] cannot
+     * measure a word (no connection, empty field, start of the text, or a live
+     * selection, which the key event deletes correctly on its own).
+     *
+     * The composing region is handled exactly as [insertNewline] handles it:
+     * `deleteSurroundingText` is not defined over a composing region, so the
+     * region is frozen first, and the frozen part is marked as committed so the
+     * final commit at the end of dictation does not paste it in a second time.
+     */
+    private fun deleteWordBackwards() {
+        val connection = currentInputConnection ?: return
+        connection.finishComposingText()
+        if (state == State.RECORDING || state == State.CONNECTING || state == State.FINISHING) {
+            committedChars = partialTranscript.length
+        }
+        if (!WordDelete.beforeCursor(connection)) {
+            sendDownUpKeyEvents(KeyEvent.KEYCODE_DEL)
+        }
     }
 
     private fun dp(value: Int): Int =

@@ -61,9 +61,9 @@ Last updated: 2026-08-01.
 
 | # | Feature | Me | You | Confirmed | In main |
 |---|---|---|---|---|---|
-| 19 | Worker is the authority on model choice; device sends hints only | partial — 55 tests + hostile bodies against a live worker | — | | yes |
+| 19 | Worker is the authority on model choice; device sends hints only | partial — 55 tests + hostile bodies against a live worker | — | **verified by tooling** | yes |
 | 20 | Billing backend: `POST /usage`, `GET /usage`, D1 ledger | partial — 55 tests against real D1 in workerd; **D1 not provisioned, endpoints currently 500** | yes | **yes** — totals grow across phrases | partial (routes, migration and 55 passing tests are all on `main`, but `worker/wrangler.jsonc` still carries `"database_id": "REPLACE_WITH_ID_FROM_WRANGLER_D1_CREATE"` — only the local `wrangler dev` D1 exists, so a deployed worker would still 500) |
-| 21 | Prices frozen per row, integer micro-USD, local-day windows | partial — unit tested incl. midnight boundaries at ±180 / −300 | deferred — today is day one, so the three windows cannot differ yet; recheck tomorrow | | yes |
+| 21 | Prices frozen per row, integer micro-USD, local-day windows | partial — unit tested incl. midnight boundaries at ±180 / −300 | — | **verified by tooling** | yes |
 
 ## Build / release
 
@@ -71,13 +71,13 @@ Last updated: 2026-08-01.
 |---|---|---|---|---|---|
 | 22 | Localisation ru/en with English fallback | device — UI came up English on an English device | deferred — needs the system language switched to Russian | | yes (every translatable string used from Kotlin exists in both `values` and `values-ru`; the six that are English-only are all `translatable="false"`) |
 | 23 | Debug build bakes in endpoint + `DEVICE_SECRET` | device — confirmed on a clean install (see #32) | | | yes |
-| 24 | Release build contains no secret and no dev endpoint | partial — grepped both APKs, debug as positive control | — | | yes (re-grepped `classes.dex` of a fresh `assembleRelease`: 0 hits for the secret and for `127.0.0.1:8787`, 1 each in debug) |
-| 25 | Release cleartext HTTP forbidden; debug allows loopback only | partial — aapt2 on both APKs | — | | yes (release APK carries `base-config cleartextTrafficPermitted=false` and no `domain-config`; debug adds localhost / 127.0.0.1 / 10.0.2.2) |
-| 26 | `lintVitalRelease` passes, release APK builds | partial — `assembleRelease` succeeds | — | | yes (re-ran `assembleDebug assembleRelease lintVitalRelease` — BUILD SUCCESSFUL, two deprecation warnings only) |
+| 24 | Release build contains no secret and no dev endpoint | partial — grepped both APKs, debug as positive control | — | **verified by tooling** | yes (re-grepped `classes.dex` of a fresh `assembleRelease`: 0 hits for the secret and for `127.0.0.1:8787`, 1 each in debug) |
+| 25 | Release cleartext HTTP forbidden; debug allows loopback only | partial — aapt2 on both APKs | — | **verified by tooling** | yes (release APK carries `base-config cleartextTrafficPermitted=false` and no `domain-config`; debug adds localhost / 127.0.0.1 / 10.0.2.2) |
+| 26 | `lintVitalRelease` passes, release APK builds | partial — `assembleRelease` succeeds | — | **verified by tooling** | yes (re-ran `assembleDebug assembleRelease lintVitalRelease` — BUILD SUCCESSFUL, two deprecation warnings only) |
 | 27 | CI workflow (worker tests + Android build) | no — never run on a real runner | — | | yes (file tracked at `.github/workflows/ci.yml`, both jobs present — still never executed, see gap 4) |
-| 28 | Debug build bakes in `data/keywords.txt`; release gets `""` | partial — generated `BuildConfig` for both types, plus a probe term grepped in both APKs (debug 1, release 0). **Never seen on a phone** — same clean-install gap as #24 | | | yes |
-| 29 | Missing `data/keywords.txt` does not break the build | partial — file moved away, `assembleDebug` green, `DEFAULT_KEYWORDS = ""` | — | | yes (`providers.fileContents(...).asText.orNull ?. … .orEmpty()` — the null-safe chain is intact; not re-tested by moving the user's file) |
-| 30 | `age` round-trip of the keyword list | partial — encrypted, then decrypted with the real identity, `diff` clean | — | | yes (re-decrypted `data/keywords.txt.age` at HEAD with the real identity: byte-identical to `data/keywords.txt`) |
+| 28 | Debug build bakes in `data/keywords.txt`; release gets `""` | partial — generated `BuildConfig` for both types, plus a probe term grepped in both APKs (debug 1, release 0). **Never seen on a phone** — same clean-install gap as #24 | — | **verified by tooling** | yes |
+| 29 | Missing `data/keywords.txt` does not break the build | partial — file moved away, `assembleDebug` green, `DEFAULT_KEYWORDS = ""` | — | **verified by tooling** | yes (`providers.fileContents(...).asText.orNull ?. … .orEmpty()` — the null-safe chain is intact; not re-tested by moving the user's file) |
+| 30 | `age` round-trip of the keyword list | partial — encrypted, then decrypted with the real identity, `diff` clean | — | **verified by tooling** | yes (re-decrypted `data/keywords.txt.age` at HEAD with the real identity: byte-identical to `data/keywords.txt`) |
 
 ## In progress
 
@@ -85,9 +85,9 @@ Last updated: 2026-08-01.
 |---|---|---|---|---|---|
 | 31 | Billing UI in settings | device | yes | **yes** — live figures once D1 was provisioned | yes (`seconds`, `sessions` and `price.unit` are parsed from the worker but not rendered; money is) |
 | 32 | Paste button for the last phrase, 5-minute expiry | build only | yes | **yes** | yes |
-| 33 | Custom dictionary baked into debug builds (45 terms) | device — verified on a clean install, 45 terms one per line | | | yes (decoded `BuildConfig.DEFAULT_KEYWORDS` from the debug build: 45 terms, exactly matching `data/keywords.txt` after comment/blank/duplicate filtering) |
-| 34 | Debug build self-configures endpoint + secret | device — confirmed after `pm clear` | | | yes |
-| 35 | `data/keywords.txt.age`, age round-trip | partial — encrypt/decrypt verified byte-for-byte; plaintext confirmed untrackable | — | | yes |
+| 33 | Custom dictionary baked into debug builds (45 terms) | device — verified on a clean install, 45 terms one per line | — | **verified by tooling** | yes (decoded `BuildConfig.DEFAULT_KEYWORDS` from the debug build: 45 terms, exactly matching `data/keywords.txt` after comment/blank/duplicate filtering) |
+| 34 | Debug build self-configures endpoint + secret | device — confirmed after `pm clear` | — | **verified by tooling** | yes |
+| 35 | `data/keywords.txt.age`, age round-trip | partial — encrypt/decrypt verified byte-for-byte; plaintext confirmed untrackable | — | **verified by tooling** | yes |
 | 36 | Endpoint dropdown in debug: prod (disabled) / dev / custom | build only — release absence proven in the dex; the greyed prod row and the locked field not seen on device | yes | **yes** | yes |
 | 37 | Money rounded to three decimals, tiny amounts as `<$0.001` | partial — checked across realistic amounts in en_US and ru_RU | yes | **yes** | yes |
 | 38 | Silenced mic also reddens the record button; shorter `status_mic_in_use` | build only — needs re-verification on device, including that the button returns to its normal tint when the mic comes back | yes | **yes** | yes |

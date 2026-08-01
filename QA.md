@@ -95,6 +95,7 @@ Last updated: 2026-08-01.
 | 40 | Max recording length: 1–20 min dropdown (default 3), auto-stop finishes the phrase like the stop button | build only — `assembleDebug` + `lintDebug` + `lintVitalRelease` clean; never waited out a real ceiling on the phone | yes | **yes** — dropdown and the auto-stop both | yes |
 | 41 | Keyboard heights tuned: keys 72×110dp, content 261dp, plus a 63dp thumb-reach lift below (block 324dp) | build only — arithmetic in the `THUMB_BUTTON_HEIGHT_DP` KDoc, `assembleDebug` + `lintDebug` green; not seen on a phone | | | yes |
 | 44 | Keyboard another 1cm taller and lifted 1cm off the bottom: content 230dp → 293dp (keys 72×126dp, row gap 13dp) plus a 63dp thumb-reach margin under the whole block, 356dp in total (+55%) | build only — arithmetic in the `THUMB_BUTTON_HEIGHT_DP` KDoc, `assembleDebug` + `lintDebug` green; width untouched, but neither the new height nor the lift has been seen on a phone | | | yes |
+| 45 | Recording-limit status shown ⚠️ + red + bold (new `emphasis` flag on `setState`; the ⚠️ is in the string, so the warning ImageView stays `INVISIBLE` and the record button keeps its normal tint) | build only — `assembleDebug` + `lintDebug` green, `aapt2 dump resources` shows the emoji on both the `()` and `(ru)` value; the red/bold/⚠️ and their reset on the next ordinary state have never been seen on a phone | | | yes |
 
 ---
 

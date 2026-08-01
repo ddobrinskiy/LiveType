@@ -62,14 +62,14 @@ Last updated: 2026-08-01.
 | # | Feature | Me | You | Confirmed | In main |
 |---|---|---|---|---|---|
 | 20 | Worker is the authority on model choice; device sends hints only | partial — 55 tests + hostile bodies against a live worker | — | | yes |
-| 21 | Billing backend: `POST /usage`, `GET /usage`, D1 ledger | partial — 55 tests against real D1 in workerd; **D1 not provisioned, endpoints currently 500** | | | partial (routes, migration and 55 passing tests are all on `main`, but `worker/wrangler.jsonc` still carries `"database_id": "REPLACE_WITH_ID_FROM_WRANGLER_D1_CREATE"` — only the local `wrangler dev` D1 exists, so a deployed worker would still 500) |
-| 22 | Prices frozen per row, integer micro-USD, local-day windows | partial — unit tested incl. midnight boundaries at ±180 / −300 | — | | yes |
+| 21 | Billing backend: `POST /usage`, `GET /usage`, D1 ledger | partial — 55 tests against real D1 in workerd; **D1 not provisioned, endpoints currently 500** | yes | **yes** — totals grow across phrases | partial (routes, migration and 55 passing tests are all on `main`, but `worker/wrangler.jsonc` still carries `"database_id": "REPLACE_WITH_ID_FROM_WRANGLER_D1_CREATE"` — only the local `wrangler dev` D1 exists, so a deployed worker would still 500) |
+| 22 | Prices frozen per row, integer micro-USD, local-day windows | partial — unit tested incl. midnight boundaries at ±180 / −300 | deferred — today is day one, so the three windows cannot differ yet; recheck tomorrow | | yes |
 
 ## Build / release
 
 | # | Feature | Me | You | Confirmed | In main |
 |---|---|---|---|---|---|
-| 23 | Localisation ru/en with English fallback | device — UI came up English on an English device | | | yes (every translatable string used from Kotlin exists in both `values` and `values-ru`; the six that are English-only are all `translatable="false"`) |
+| 23 | Localisation ru/en with English fallback | device — UI came up English on an English device | deferred — needs the system language switched to Russian | | yes (every translatable string used from Kotlin exists in both `values` and `values-ru`; the six that are English-only are all `translatable="false"`) |
 | 24 | Debug build bakes in endpoint + `DEVICE_SECRET` | device — confirmed on a clean install (see #32) | | | yes |
 | 25 | Release build contains no secret and no dev endpoint | partial — grepped both APKs, debug as positive control | — | | yes (re-grepped `classes.dex` of a fresh `assembleRelease`: 0 hits for the secret and for `127.0.0.1:8787`, 1 each in debug) |
 | 26 | Release cleartext HTTP forbidden; debug allows loopback only | partial — aapt2 on both APKs | — | | yes (release APK carries `base-config cleartextTrafficPermitted=false` and no `domain-config`; debug adds localhost / 127.0.0.1 / 10.0.2.2) |

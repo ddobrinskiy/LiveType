@@ -92,6 +92,7 @@ Last updated: 2026-08-01.
 | 33 | `data/keywords.txt.age`, age round-trip | partial — encrypt/decrypt verified byte-for-byte; plaintext confirmed untrackable | — | | yes |
 | 34 | Endpoint dropdown in debug: prod (disabled) / dev / custom | build only — release absence proven in the dex; the greyed prod row and the locked field not seen on device | | | yes |
 | 35 | Money rounded to three decimals, tiny amounts as `<$0.001` | partial — checked across realistic amounts in en_US and ru_RU | | | yes |
+| 36 | Keyboard ~30% taller (176dp → 230dp of content) via vertical-only growth: keys 72×96dp, row gap 10dp, content padding 14dp | build only — arithmetic in the `THUMB_BUTTON_HEIGHT_DP` KDoc, `assembleDebug` + `lintDebug` green; not seen on a phone | | | no |
 
 ---
 

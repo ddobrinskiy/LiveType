@@ -137,7 +137,7 @@ class LiveTypeImeService : InputMethodService() {
         // left, the grid of big thumb targets pinned to the right edge.
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            setPadding(dp(14), dp(12), dp(14), dp(12))
+            setPadding(dp(14), dp(CONTENT_PADDING_V_DP), dp(14), dp(CONTENT_PADDING_V_DP))
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT,
@@ -274,7 +274,8 @@ class LiveTypeImeService : InputMethodService() {
         // two buttons and is pinned to the END so backspace and Enter stay
         // directly under keyboard and mic — the thumb finds them where it
         // always did. See THUMB_BUTTON_DP for the width arithmetic that forced
-        // the squares down from 88dp to 72dp.
+        // the keys down to 72dp wide, and THUMB_BUTTON_HEIGHT_DP for the height
+        // arithmetic that made them 96dp tall.
         val rightColumn = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             layoutParams = LinearLayout.LayoutParams(
@@ -283,7 +284,7 @@ class LiveTypeImeService : InputMethodService() {
             )
         }
         val topRow = thumbRow().apply {
-            (layoutParams as LinearLayout.LayoutParams).bottomMargin = dp(THUMB_GAP_DP)
+            (layoutParams as LinearLayout.LayoutParams).bottomMargin = dp(THUMB_ROW_GAP_DP)
         }
         val bottomRow = thumbRow().apply {
             (layoutParams as LinearLayout.LayoutParams).gravity = Gravity.END
@@ -385,7 +386,7 @@ class LiveTypeImeService : InputMethodService() {
         setOnClickListener { onClick() }
         layoutParams = LinearLayout.LayoutParams(
             dp(THUMB_BUTTON_DP),
-            dp(THUMB_BUTTON_DP),
+            dp(THUMB_BUTTON_HEIGHT_DP),
         )
     }
 
@@ -1289,7 +1290,7 @@ class LiveTypeImeService : InputMethodService() {
         private const val WARM_SESSION_MAX_MS = 5 * 60_000L
 
         /**
-         * Square thumb targets on the right edge:
+         * Thumb targets on the right edge, 72dp **wide**:
          *
          * ```
          * [paste] [keyboard] [mic]
@@ -1313,17 +1314,65 @@ class LiveTypeImeService : InputMethodService() {
          * - the status line: 141 − 18 (alarm icon) − 6 (its margin) = 117dp,
          *   about 15 characters per line at 15sp, so the longest string —
          *   Russian `status_mic_in_use`, 59 chars — wraps to four lines and
-         *   still fits inside the 152dp the grid is tall;
+         *   still fits inside the 202dp the grid is tall;
          * - Cancel and Settings at (141 − 6) / 2 ≈ 67dp each, which needs the
          *   label autosizing in `fitLabel()` but no wrapping.
          *
          * 72dp is 1.5× Material's 48dp minimum touch target and above the ~64dp
          * floor for a primary control, so the thumb loses nothing that matters.
-         * The grid also gets shorter — 72 + 8 + 72 = 152dp against the old
-         * 184dp — so the keyboard does not grow to pay for the new button.
+         *
+         * This number is a **width** budget and nothing else. Height is free —
+         * see [THUMB_BUTTON_HEIGHT_DP].
          */
         private const val THUMB_BUTTON_DP = 72
+
+        /**
+         * The same targets, 96dp **tall** — the keys are deliberately not
+         * square.
+         *
+         * The keyboard was too short and had to grow ~30%, but width is spoken
+         * for: every dp added to [THUMB_BUTTON_DP] is taken three times over
+         * from the left column, which at 141dp is already autosizing its button
+         * labels to fit. Height costs nothing, and a key taller than it is wide
+         * suits a thumb arriving from below better than a square does.
+         *
+         * So all the growth is vertical. Content height on the reference phone,
+         * where the grid is what the keyboard is as tall as:
+         *
+         * | | before | after |
+         * |---|---|---|
+         * | content padding, top | 12 | 14 |
+         * | top row | 72 | **96** |
+         * | row gap ([THUMB_ROW_GAP_DP]) | 8 | **10** |
+         * | bottom row | 72 | **96** |
+         * | content padding, bottom | 12 | 14 |
+         * | **total** | **176dp** | **230dp** (+30.7%) |
+         *
+         * `systemInsetPadding()` sits below all of this and is untouched — it
+         * reserves the gesture bar, not keyboard.
+         *
+         * Consequences:
+         * - The glyph does not grow. [THUMB_ICON_PADDING_DP] is 20 on all four
+         *   sides, so FIT_CENTER still resolves a square drawable inside
+         *   72 − 40 = 32dp of width; the extra 24dp of height is padding.
+         * - The left column gets 202dp of usable height against 152dp before,
+         *   all of it to the weight-1 status block: the four-line Russian
+         *   `status_mic_in_use` now clears the grid instead of being the thing
+         *   that sets the keyboard's height, and the two indicators and the
+         *   52dp action row are unchanged.
+         * - The 64dp accessibility floor is measured on the smaller dimension,
+         *   which is still the 72dp width.
+         */
+        private const val THUMB_BUTTON_HEIGHT_DP = 96
+
+        /** Gap **between** two keys in a row; a width cost, so it stays 8dp. */
         private const val THUMB_GAP_DP = 8
+
+        /** Gap between the two rows. Vertical, hence free — see above. */
+        private const val THUMB_ROW_GAP_DP = 10
+
+        /** Top and bottom padding of the content block. Also free. */
+        private const val CONTENT_PADDING_V_DP = 14
 
         /** Keeps the glyph the same fraction of the square as before (25/88). */
         private const val THUMB_ICON_PADDING_DP = 20

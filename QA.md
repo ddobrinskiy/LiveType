@@ -24,7 +24,7 @@ Last updated: 2026-08-01.
 |---|---|---|---|---|
 | 1 | Connection indicators moved left, above the status line | device | | |
 | 2 | Red + `!` badge when a connection is down, green when up, spinner while connecting | device | | |
-| 3 | Tap an indicator → popup with its state | build only | | |
+| 3 | Tap an indicator → popup with its state | device | yes | **yes** |
 | 4 | Recognised text no longer mirrored in the keyboard | device | | |
 | 5 | Background `#E0EAEC`, dark strip removed | device | | |
 | 6 | System `⌄` / globe glyphs forced dark | device | | |
@@ -51,7 +51,7 @@ Last updated: 2026-08-01.
 | 17 | Silenced-mic shown red + warning icon, auto-recovers | build only | | |
 | 18 | Prewarm debounce + 8s grace + 5min ceiling | device — measured 6 open/close cycles → **0** extra token requests, 6 reuses | | |
 | 19 | Fix: mic tap mid-connect + focus loss no longer records with the keyboard hidden | build only | | |
-| 31 | Session survives a completed phrase: back to `READY`, indicators stay green, ceiling re-armed per phrase | build only — multi-phrase reuse proven against the live API, not yet on the device | | |
+| 31 | Session survives a completed phrase: back to `READY`, indicators stay green, ceiling re-armed per phrase | device | yes | **yes** |
 
 ## Backend
 
@@ -79,7 +79,7 @@ Last updated: 2026-08-01.
 
 | # | Feature | Me | You | Confirmed |
 |---|---|---|---|---|
-| 29 | Billing UI in settings | device — **renders, but errors** | yes | **no — broken** |
+| 29 | Billing UI in settings | device | yes | **yes** — live figures once D1 was provisioned |
 | 30 | Paste button for the last phrase, 5-minute expiry | build only | | |
 | 31 | Custom dictionary baked into debug builds (45 terms) | device — verified on a clean install, 45 terms one per line | | |
 | 32 | Debug build self-configures endpoint + secret | device — confirmed after `pm clear` | | |

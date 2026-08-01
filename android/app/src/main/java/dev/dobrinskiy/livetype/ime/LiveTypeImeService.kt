@@ -1133,11 +1133,10 @@ class LiveTypeImeService : InputMethodService() {
             ConnectionState.LOADING -> R.string.connection_loading
             else -> R.string.connection_error
         }
-        Toast.makeText(
-            this,
-            getString(R.string.connection_toast, getString(indicator.labelRes), getString(statusRes)),
-            Toast.LENGTH_SHORT,
-        ).show()
+        val message =
+            getString(R.string.connection_toast, getString(indicator.labelRes), getString(statusRes))
+        Log.i(TAG, "Indicator tapped: $message")
+        Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
     }
 
     private fun setConnectionStates(server: ConnectionState, openAi: ConnectionState) {

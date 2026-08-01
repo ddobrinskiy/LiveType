@@ -62,7 +62,7 @@ Last updated: 2026-08-01.
 | # | Feature | Me | You | Confirmed | In main |
 |---|---|---|---|---|---|
 | 19 | Worker is the authority on model choice; device sends hints only | partial — 55 tests + hostile bodies against a live worker | — | **verified by tooling** | yes |
-| 20 | Billing backend: `POST /usage`, `GET /usage`, D1 ledger | partial — 55 tests against real D1 in workerd; **D1 not provisioned, endpoints currently 500** | yes | **yes** — totals grow across phrases | partial (routes, migration and 55 passing tests are all on `main`, but `worker/wrangler.jsonc` still carries `"database_id": "REPLACE_WITH_ID_FROM_WRANGLER_D1_CREATE"` — only the local `wrangler dev` D1 exists, so a deployed worker would still 500) |
+| 20 | Billing backend: `POST /usage`, `GET /usage`, D1 ledger | partial — 55 tests against real D1 in workerd, plus the local `wrangler dev` database serving the live meter | yes | **yes** — totals grow across phrases | yes for the code and the local database; the **remote** one now exists and is migrated (row 43), but no deployed worker has bound to it yet |
 | 21 | Prices frozen per row, integer micro-USD, local-day windows | partial — unit tested incl. midnight boundaries at ±180 / −300 | — | **verified by tooling** | yes |
 
 ## Build / release
@@ -164,11 +164,19 @@ Things below are **not** verified and should not be assumed working.
    flips to green. The token-server indicator does spin correctly, which is
    presumably why this went unnoticed on device. One line in
    `connectRealtime()` fixes it.
-6. **`wrangler.jsonc` has a placeholder `database_id` (#21).** It still reads
-   `REPLACE_WITH_ID_FROM_WRANGLER_D1_CREATE`. `wrangler dev` creates its D1
-   locally and ignores the field, which is why the billing UI works on the
-   laptop, but `wrangler deploy` would fail or bind nothing. Blocked on the
-   same A2 as gap 3.
-7. **Dead constant `INDICATOR_IDLE`** in `LiveTypeImeService` — declared,
+6. **The Worker is still not deployed (#43).** The remote D1 database is real
+   and migrated, and `wrangler.jsonc` carries its actual id — but no Worker
+   script exists in the Cloudflare account (`workers/scripts` lists 0). Two
+   account-level gates stopped it: the account email is unverified (`10034`,
+   which blocks every Worker write including `wrangler secret put`) and no
+   `workers.dev` subdomain has been registered (`10007`). Both need the account
+   owner; see `OPEN_QUESTIONS.md` A1. Until then the phone still needs the
+   cable, and **no secret has been pushed to Cloudflare** — the deployed worker
+   would have neither `OPENAI_API_KEY` nor `DEVICE_SECRET`.
+7. **The deployed endpoint will have no rate limiting.** Accepted deliberately
+   (R8) on the grounds that the OpenAI account has a hard spend cap, so the
+   blast radius of the leaked `DEVICE_SECRET` is bounded by that cap rather
+   than open-ended. Worth revisiting if the cap is ever raised.
+8. **Dead constant `INDICATOR_IDLE`** in `LiveTypeImeService` — declared,
     never read. `setIndicator` deliberately paints `IDLE` with
-    `INDICATOR_ERROR`. Cosmetic, but it is the visible half of gap 8.
+    `INDICATOR_ERROR`. Cosmetic, but it is the visible half of gap 5.

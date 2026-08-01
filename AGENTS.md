@@ -548,23 +548,34 @@ frozen into them and are never re-priced.
 
 ### D1 provisioning
 
-`worker/wrangler.jsonc` now carries the project's first binding. `database_id`
-in it is a **placeholder**; `wrangler dev` ignores it (local D1 is created on
-demand under `worker/.wrangler/`) but `wrangler deploy` does not.
+**Both databases now exist.** `worker/wrangler.jsonc` carries the real
+`database_id` (`850f00b2-d22f-49ff-bcdb-f0eca6f087da`, region WEUR, created
+2026-08-01) — steps 1 and 2 below are done and are kept only as the recipe for
+a fresh account. `wrangler dev` ignores that id and makes its own local D1
+under `worker/.wrangler/`; `wrangler deploy` uses it. The two are unrelated and
+the remote one starts empty — see ARCHITECTURE.md §3.8.
 
 ```bash
 cd worker
 
 # 1. Local dev — create the tables in the local SQLite that `wrangler dev` uses.
-#    Re-runnable: the migration is IF NOT EXISTS throughout.
+#    Re-runnable: the migration is IF NOT EXISTS throughout.  [done]
 npx wrangler d1 execute livetype-usage --local --file=./migrations/0001_usage_events.sql -y
 
 # 2. Real database, once per account. Copy the printed database_id into
-#    wrangler.jsonc, replacing REPLACE_WITH_ID_FROM_WRANGLER_D1_CREATE.
+#    wrangler.jsonc.  [done — id already in the file]
 npx wrangler d1 create livetype-usage
 
-# 3. Apply the schema remotely, then deploy.
+# 3. Apply the schema remotely.  [done: 0001_usage_events.sql, 3 commands]
+#    Note there is no `-y`; a non-interactive shell auto-confirms.
 npx wrangler d1 migrations apply livetype-usage --remote
+
+# 4. Secrets, then deploy.  [NOT done — blocked, see below]
+#    Feed the value on stdin so it never lands in shell history or argv.
+grep '^OPENAI_API_KEY=' .dev.vars | sed 's/^OPENAI_API_KEY=//' | tr -d '\n' \
+  | npx wrangler secret put OPENAI_API_KEY
+grep '^DEVICE_SECRET=' .dev.vars | sed 's/^DEVICE_SECRET=//' | tr -d '\n' \
+  | npx wrangler secret put DEVICE_SECRET
 npx wrangler deploy
 
 # Handy afterwards:
@@ -574,6 +585,21 @@ npx wrangler d1 execute livetype-usage --remote --command "SELECT model, COUNT(*
 
 Free plan: 10 databases, 500 MB, 5 M rows read/day. One dictation is a few
 hundred bytes, so this will not grow into anything.
+
+#### Step 4 is blocked on the Cloudflare account, not on the code
+
+Attempted 2026-08-01 and stopped by two gates that only the account owner can
+clear. Do not try to route around them; a half-deployed worker is worse than
+none.
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `wrangler secret put` → `10034 You need to verify your email address to use Workers` | the account's email address is unverified, which gates **every** write to `/workers/scripts/*` | verify it from the mail Cloudflare sent, or resend from the dashboard |
+| `wrangler deploy` → `10007` / "register a workers.dev subdomain" | the account has never had a `workers.dev` subdomain | open Workers & Pages in the dashboard once, or answer wrangler's prompt interactively. The name is permanent and account-wide, so it is the owner's choice |
+
+D1 is not gated on either, which is why the database half succeeded while the
+worker half did not. After clearing both, re-run step 4 and put the resulting
+`https://…/token` into `EndpointMode.PROD_ENDPOINT`.
 
 **Not KV.** KV caps writes at 1/sec/key and 1000/day on the free plan, and a
 running total in KV is a read-modify-write race against eventual consistency.

@@ -47,6 +47,12 @@
     <string name="cd_transcribing">Transcribing</string>
     <string name="cd_newline">Insert a line break</string>
     <string name="cd_backspace">Delete the previous character</string>
+    <!--
+        Paste re-inserts the last recognised phrase, which is held in memory
+        for five minutes and never written anywhere. The button is disabled
+        while there is nothing to insert.
+    -->
+    <string name="cd_paste">Insert the last recognised phrase</string>
 
     <!-- Connection indicators. indicator_openai is a brand name, not translated. -->
     <string name="indicator_server">Token server</string>

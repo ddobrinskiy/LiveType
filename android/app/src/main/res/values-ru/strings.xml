@@ -36,6 +36,7 @@
     <string name="cd_transcribing">Распознаю</string>
     <string name="cd_newline">Перенос на следующую строку</string>
     <string name="cd_backspace">Удалить предыдущий символ</string>
+    <string name="cd_paste">Вставить последнюю распознанную фразу</string>
 
     <!-- Connection indicators -->
     <string name="indicator_server">Сервер токенов</string>

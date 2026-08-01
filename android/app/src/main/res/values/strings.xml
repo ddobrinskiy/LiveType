@@ -96,6 +96,10 @@
     <!-- Wraps the name of a mode that cannot be picked yet, so the greyed-out
          row says why instead of leaving the reader to guess. -->
     <string name="endpoint_mode_not_deployed">%1$s — not deployed yet</string>
+    <!-- The dropdown writes itself to storage on the spot; the field below does
+         not. Said out loud because a control that saves without Save, sitting
+         above a Save button, is otherwise pure guesswork. -->
+    <string name="note_endpoint_mode">Picking a worker saves it straight away. A URL you type by hand still needs Save.</string>
     <string name="label_worker_endpoint">Worker token endpoint</string>
     <string name="label_device_secret">Device secret</string>
     <string name="label_languages">Expected languages, comma separated</string>

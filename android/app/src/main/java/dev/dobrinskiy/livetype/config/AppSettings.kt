@@ -29,6 +29,17 @@ data class LiveTypeSettings(
     /** Which worker this endpoint came from. Debug-only affordance; see [EndpointMode]. */
     val endpointMode: EndpointMode = EndpointMode.default(),
     /**
+     * The last URL the user supplied by hand, remembered even while a derived
+     * mode owns [tokenEndpoint].
+     *
+     * Not used for anything: the keyboard reads [tokenEndpoint] and nothing
+     * else. It exists because picking `DEV` now overwrites the stored endpoint
+     * immediately, and without somewhere else to keep it the hand-typed URL
+     * would be destroyed by a round trip through another mode. Debug-only in
+     * practice, like [endpointMode].
+     */
+    val customEndpoint: String = "",
+    /**
      * Recording stops itself after this many minutes. Unlike [endpointMode]
      * this is not a development affordance — every build shows the dropdown,
      * because every user can forget to tap stop. See [RecordingLimit].
@@ -70,6 +81,7 @@ object AppSettings {
     private const val KEYWORDS = "keywords"
     private const val RETURN_TO_PREVIOUS = "return_to_previous"
     private const val ENDPOINT_MODE = "endpoint_mode"
+    private const val CUSTOM_ENDPOINT = "custom_endpoint"
     private const val MAX_RECORDING_MINUTES = "max_recording_minutes"
 
     // Seeded from resources so the first run matches the device locale.
@@ -109,6 +121,7 @@ object AppSettings {
                 .toList(),
             returnToPreviousKeyboard = preferences.getBoolean(RETURN_TO_PREVIOUS, true),
             endpointMode = EndpointMode.from(preferences.getString(ENDPOINT_MODE, null)),
+            customEndpoint = preferences.getString(CUSTOM_ENDPOINT, "").orEmpty().trim(),
             // Same rule as every other setting: the constant is only the
             // default, and anything the user saved wins. `from` additionally
             // clamps a value that is no longer offered.
@@ -128,7 +141,39 @@ object AppSettings {
             .putString(KEYWORDS, settings.keywords.joinToString("\n"))
             .putBoolean(RETURN_TO_PREVIOUS, settings.returnToPreviousKeyboard)
             .putString(ENDPOINT_MODE, settings.endpointMode.name)
+            .putString(CUSTOM_ENDPOINT, settings.customEndpoint.trim())
             .putInt(MAX_RECORDING_MINUTES, RecordingLimit.from(settings.maxRecordingMinutes))
+            .apply()
+    }
+
+    /**
+     * Stores the endpoint mode the moment it is picked, together with the URL
+     * that mode implies.
+     *
+     * The Save button is not involved. A mode used to live in the Activity
+     * until Save wrote it, so leaving the screen threw the choice away and the
+     * next visit re-applied the stored mode over the stored URL — the screen
+     * came back on a worker the user had already moved off.
+     *
+     * All three keys go into one `edit()`, so the mode and the URL are never
+     * stored apart. [customEndpoint] rides along because a derived mode
+     * overwrites [TOKEN_ENDPOINT]: without a home of its own, a hand-typed URL
+     * would not survive a trip through `DEV` and back.
+     *
+     * Deliberately partial: it touches the endpoint keys and nothing else, so
+     * a mode switch never commits half-edited text from the other fields.
+     */
+    fun saveEndpointSelection(
+        context: Context,
+        mode: EndpointMode,
+        endpoint: String,
+        customEndpoint: String,
+    ) {
+        context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
+            .edit()
+            .putString(ENDPOINT_MODE, mode.name)
+            .putString(TOKEN_ENDPOINT, endpoint.trim())
+            .putString(CUSTOM_ENDPOINT, customEndpoint.trim())
             .apply()
     }
 }

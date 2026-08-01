@@ -60,6 +60,7 @@
     <string name="endpoint_mode_dev">Локальный воркер через adb reverse</string>
     <string name="endpoint_mode_custom">Произвольный URL</string>
     <string name="endpoint_mode_not_deployed">%1$s — ещё не развёрнут</string>
+    <string name="note_endpoint_mode">Выбор воркера сохраняется сразу. URL, введённый вручную, всё равно нужно сохранить кнопкой.</string>
     <string name="label_worker_endpoint">Адрес токен-эндпоинта воркера</string>
     <string name="label_device_secret">Секрет устройства</string>
     <string name="label_languages">Ожидаемые языки через запятую</string>

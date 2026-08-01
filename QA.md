@@ -29,7 +29,7 @@ Last updated: 2026-08-01.
 | # | Feature | Me | You | Confirmed | In main |
 |---|---|---|---|---|---|
 | 1 | Connection indicators moved left, above the status line | device | | | yes |
-| 2 | Red + `!` badge when a connection is down, green when up, spinner while connecting | device | | | partial (the spinner only ever runs on the **token-server** indicator; nothing sets the OpenAI one to `LOADING`, so while the socket opens it shows the red `!` and then jumps straight to green) |
+| 2 | Red + `!` badge when a connection is down, green when up, spinner while connecting | device | | | yes (fixed: `connectRealtime` now sets the OpenAI indicator to `LOADING`, and `IDLE` no longer borrows the red `!`) |
 | 3 | Tap an indicator → popup with its state | device | yes | **yes** | yes |
 | 4 | Recognised text no longer mirrored in the keyboard | device | yes | **yes** | yes |
 | 5 | Background `#E0EAEC`, dark strip removed | device | yes | **yes** | yes |
@@ -95,6 +95,8 @@ Last updated: 2026-08-01.
 | 40 | Keyboard heights tuned: keys 72×110dp, content 261dp, plus a 63dp thumb-reach lift below (block 324dp) | build only — arithmetic in the `THUMB_BUTTON_HEIGHT_DP` KDoc, `assembleDebug` + `lintDebug` green; not seen on a phone | | | yes |
 | 41 | Keyboard another 1cm taller and lifted 1cm off the bottom: content 230dp → 293dp (keys 72×126dp, row gap 13dp) plus a 63dp thumb-reach margin under the whole block, 356dp in total (+55%) | build only — arithmetic in the `THUMB_BUTTON_HEIGHT_DP` KDoc, `assembleDebug` + `lintDebug` green; width untouched, but neither the new height nor the lift has been seen on a phone | | | yes |
 | 42 | Recording-limit status shown ⚠️ + red + bold (new `emphasis` flag on `setState`; the ⚠️ is in the string, so the warning ImageView stays `INVISIBLE` and the record button keeps its normal tint) | build only — `assembleDebug` + `lintDebug` green, `aapt2 dump resources` shows the emoji on both the `()` and `(ru)` value; the red/bold/⚠️ and their reset on the next ordinary state have never been seen on a phone | yes | **yes** | yes |
+| 45 | Indicators enlarged: 26dp glyphs (was 18) inside 48dp touch boxes (was 30), 38dp spinner ring, 26dp alarm glyph; optical left-edge alignment now derived from `content`'s shortened left padding instead of a negative row margin; column arithmetic 48 + 6 + 95 + 12 + 72 = 233dp | build only — `assembleDebug` (with `compileDebugKotlin` executing) and `lintDebug` clean, no error-severity issues; arithmetic re-derived in the `THUMB_BUTTON_DP` and `THUMB_BUTTON_HEIGHT_DP` KDocs. Nothing rendered: the glyph size, the ring's fit around the 26dp logo, the `!` badge's position at 18sp, and that the status text still holds its longest Russian string in 95dp have all been reasoned, not seen | | | yes |
+| 46 | Tapping an indicator shows its status toast | build only — **regressed once and is untracked by row 3**, which was confirmed before the left-column rework put 6dp of a 30dp target outside its parent (drawn, never touched) and left a 24dp live strip with the glyph on its left edge. Now a 48dp box wholly inside its parent. Never re-tapped on a phone | | | yes |
 
 ---
 
@@ -133,7 +135,7 @@ needs a fix and then a re-test — none of these has been verified as working.
 
 | # | Bug | How it was found | Fixed? | Re-tested? |
 |---|---|---|---|---|
-| B1 | **The OpenAI indicator never shows the spinner.** It goes `IDLE → OK`, skipping `LOADING`, and `IDLE` renders as the red `!` that everywhere else means *failed*. So the entire OpenAI connect — the slow leg — looks like an error. The token-server indicator does spin, which is why this passed a glance. One line in `connectRealtime()`. The unread `INDICATOR_IDLE` constant is the same bug's other half. | code audit against `main`; `git log -S` shows the `LOADING` call was never written, not lost in a merge | no | no |
+| B1 | **The OpenAI indicator never shows the spinner.** It goes `IDLE → OK`, skipping `LOADING`, and `IDLE` renders as the red `!` that everywhere else means *failed*. So the entire OpenAI connect — the slow leg — looks like an error. The token-server indicator does spin, which is why this passed a glance. One line in `connectRealtime()`. The unread `INDICATOR_IDLE` constant is the same bug's other half. | code audit against `main`; `git log -S` shows the `LOADING` call was never written, not lost in a merge | **yes** | no |
 | B2 | ~~**`wrangler.jsonc` still has `"database_id": "REPLACE_WITH_ID_FROM_WRANGLER_D1_CREATE"`.**~~ **Fixed** 2026-08-01: `wrangler d1 create livetype-usage` returned `850f00b2-d22f-49ff-bcdb-f0eca6f087da` (region WEUR) and that id is now in the file. | code audit | **yes** | partial — the id is proven correct against the real database (`d1 migrations apply --remote` and a `sqlite_master` query both hit it and report `served_by_region: WEUR`), but it has **not** been exercised through a deployed worker's `DB` binding, because the deploy is blocked (row 43) |
 | B3 | **A reused session can outlive OpenAI's own server-side session limit.** Now that one socket serves many phrases, it may hit the server's maximum and close, surfacing as a red "connection closed" where the old per-phrase reconnect quietly hid it. Not observed yet; it is a new failure surface created by multi-phrase reuse. | reasoning by the agent that implemented reuse | no | no |
 | B4 | **Behaviour during a long silenced-microphone gap is unknown.** We now report the silencing honestly, but OpenAI may end the turn on its own during the silence, and nothing in the UI would reveal that. | reasoning; never reproduced | no | no |
@@ -156,15 +158,7 @@ Things below are **not** verified and should not be assumed working.
    as is.
 4. **Long-silence behaviour is unknown.** When the mic is taken mid-dictation,
    OpenAI may end the turn on its own regardless of what the UI shows. Untested.
-5. **The OpenAI indicator never shows the spinner (#2).** `openSession` sets it
-   to `IDLE` and the only other writes are `OK` (on `session.updated`) and
-   `ERROR`. Nothing anywhere in the file's history has ever set it to
-   `LOADING`, so during the whole OpenAI connect — the slower of the two legs —
-   it displays the red `!` badge that everywhere else means *failed*, then
-   flips to green. The token-server indicator does spin correctly, which is
-   presumably why this went unnoticed on device. One line in
-   `connectRealtime()` fixes it.
-6. **The Worker is still not deployed (#43).** The remote D1 database is real
+5. **The Worker is still not deployed (#43).** The remote D1 database is real
    and migrated, and `wrangler.jsonc` carries its actual id — but no Worker
    script exists in the Cloudflare account (`workers/scripts` lists 0). Two
    account-level gates stopped it: the account email is unverified (`10034`,
@@ -173,10 +167,7 @@ Things below are **not** verified and should not be assumed working.
    owner; see `OPEN_QUESTIONS.md` A1. Until then the phone still needs the
    cable, and **no secret has been pushed to Cloudflare** — the deployed worker
    would have neither `OPENAI_API_KEY` nor `DEVICE_SECRET`.
-7. **The deployed endpoint will have no rate limiting.** Accepted deliberately
+6. **The deployed endpoint will have no rate limiting.** Accepted deliberately
    (R8) on the grounds that the OpenAI account has a hard spend cap, so the
    blast radius of the leaked `DEVICE_SECRET` is bounded by that cap rather
    than open-ended. Worth revisiting if the cap is ever raised.
-8. **Dead constant `INDICATOR_IDLE`** in `LiveTypeImeService` — declared,
-    never read. `setIndicator` deliberately paints `IDLE` with
-    `INDICATOR_ERROR`. Cosmetic, but it is the visible half of gap 5.

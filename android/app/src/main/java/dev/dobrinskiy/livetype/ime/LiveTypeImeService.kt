@@ -169,14 +169,30 @@ class LiveTypeImeService : InputMethodService() {
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             setPadding(dp(14), dp(CONTENT_PADDING_V_DP), dp(14), dp(CONTENT_PADDING_V_DP))
+            // The indicator row hangs 6dp past the left column's edge on
+            // purpose (see the row below). Both this view and the column would
+            // otherwise clip that overhang away — a ViewGroup clips a child to
+            // its own padding box whenever clipChildren and clipToPadding are
+            // both on, and the loss would land squarely on the connecting
+            // spinner's ring. Nothing else here draws outside its bounds, so
+            // turning the clip off costs nothing.
+            clipChildren = false
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT,
             ).apply { bottomMargin = dp(BUTTON_BLOCK_LIFT_DP) }
         }
 
+        // The status column. It is MATCH_PARENT tall inside a horizontal row
+        // whose height the thumb grid sets, so it spans exactly the grid's
+        // rectangle: first child flush with the top of the top key row, last
+        // child flush with the bottom of the bottom one. Everything between
+        // those two anchors is deliberate — see [LEFT_COLUMN_GAP_DP].
         val leftColumn = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
+            // Same reason as on `content`: the indicator row starts 6dp to the
+            // left of this column's own edge.
+            clipChildren = false
             layoutParams = LinearLayout.LayoutParams(
                 0,
                 LinearLayout.LayoutParams.MATCH_PARENT,
@@ -184,25 +200,59 @@ class LiveTypeImeService : InputMethodService() {
             ).apply { marginEnd = dp(10) }
         }
 
-        // Indicators sit above the status line, both vertically centred in
-        // the free space left of the thumb buttons.
-        val centreBlock = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER_VERTICAL
+        // The alarm glyph lives at the far end of the indicator row, not beside
+        // the status text.
+        //
+        // It still toggles VISIBLE / INVISIBLE and is never GONE, so its slot
+        // is reserved whether or not it is showing and nothing reflows when the
+        // microphone is taken away and handed back — that property is the whole
+        // point and must survive any later rearranging. Moving it *out of the
+        // status row* is what lets the text start on the column's left edge
+        // instead of 24dp in, and hands the text the full column width to wrap
+        // in rather than 117dp of it.
+        //
+        // At the far end rather than tucked against the two connection glyphs:
+        // a red mark sitting in that run would read as a third connection
+        // having failed, which is precisely what it does not mean.
+        warningIcon = ImageView(this).apply {
+            setImageResource(R.drawable.ic_warning)
+            setColorFilter(ERROR_COLOR, PorterDuff.Mode.SRC_IN)
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            visibility = View.INVISIBLE
+            // The status text already says what is wrong; announcing the icon
+            // too would just repeat it.
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
             layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                0,
-                1f,
+                dp(WARNING_ICON_DP),
+                dp(WARNING_ICON_DP),
             )
         }
 
+        // Row one: the two connection glyphs at the start, the alarm slot at
+        // the end. First child of the column, so its top edge *is* the top edge
+        // of the thumb grid and the eye reads one horizontal line across the
+        // whole keyboard instead of finding the logos adrift in mid-column.
+        //
+        // The negative start margin is optical alignment, not a fudge. Each
+        // indicator is an 18dp glyph centred inside a 30dp box, and the box is
+        // real — it is the spinner ring and the touch target — so the glyph
+        // sits (30 − 18) / 2 = 6dp inside its own left edge. Pulling the row out
+        // by exactly that much puts the *glyph*, which is the thing anyone
+        // actually sees, on the same left edge as the status text and the
+        // Cancel button. The row is MATCH_PARENT, so it grows by the same 6dp
+        // and its right edge stays flush with the column. The 6dp it hangs into
+        // is `content`'s own left padding, and it is visible only because
+        // `content` and `leftColumn` both have `clipChildren = false`.
         val indicators = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.START or Gravity.CENTER_VERTICAL
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 dp(INDICATOR_DP),
-            ).apply { bottomMargin = dp(10) }
+            ).apply {
+                marginStart = -dp(INDICATOR_GLYPH_INSET_DP)
+                bottomMargin = dp(LEFT_COLUMN_GAP_DP)
+            }
         }
         serverIndicator = createIndicator(
             R.drawable.ic_server,
@@ -216,62 +266,44 @@ class LiveTypeImeService : InputMethodService() {
             .marginEnd = dp(14)
         indicators.addView(serverIndicator.container)
         indicators.addView(openAiIndicator.container)
-        centreBlock.addView(indicators)
-
-        // The alarm icon shares a row with the status text and toggles between
-        // VISIBLE and INVISIBLE — never GONE. It therefore holds its column
-        // whether or not it is showing, so the text keeps the same wrapping
-        // width and the line does not jump every time the mic is taken away
-        // and handed back.
-        val statusRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-            )
-        }
-        warningIcon = ImageView(this).apply {
-            setImageResource(R.drawable.ic_warning)
-            setColorFilter(ERROR_COLOR, PorterDuff.Mode.SRC_IN)
-            scaleType = ImageView.ScaleType.FIT_CENTER
-            visibility = View.INVISIBLE
-            // The status text already says what is wrong; announcing the icon
-            // too would just repeat it.
-            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
-            layoutParams = LinearLayout.LayoutParams(
-                dp(STATUS_ICON_DP),
-                dp(STATUS_ICON_DP),
-            ).apply {
-                marginEnd = dp(6)
-                // Sits level with the first line when the status wraps.
-                topMargin = dp(1)
-            }
-        }
+        // Eats the slack between the connection glyphs and the alarm slot, so
+        // the alarm is pinned to the end of the row by geometry rather than by
+        // a margin that would have to be re-derived every time the column
+        // width changes.
+        indicators.addView(
+            View(this).apply { layoutParams = LinearLayout.LayoutParams(0, 1, 1f) },
+        )
+        indicators.addView(warningIcon)
+        leftColumn.addView(indicators)
 
         // The recognised text is no longer mirrored here — it goes straight
         // into the editor. This line only carries status and errors.
+        //
+        // Weight 1, so it takes whatever the anchored rows above and below do
+        // not: the text is top-aligned and grows downwards into that slack, and
+        // the layout is identical whether it renders one line or four. No
+        // leading icon any more, so the first character sits on the column's
+        // left edge.
         statusText = TextView(this).apply {
             // Honest default: nothing is connected until onStartInputView
             // prewarms and the socket reports ready.
             setText(R.string.status_not_connected)
             textSize = 15f
             setTextColor(STATUS_COLOR)
+            gravity = Gravity.TOP or Gravity.START
             layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
                 0,
-                LinearLayout.LayoutParams.WRAP_CONTENT,
                 1f,
-            )
+            ).apply { bottomMargin = dp(LEFT_COLUMN_GAP_DP) }
         }
-        statusRow.addView(warningIcon)
-        statusRow.addView(statusText)
-        centreBlock.addView(statusRow)
-        leftColumn.addView(centreBlock)
+        leftColumn.addView(statusText)
 
         val actions = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
-                dp(52),
+                dp(ACTION_ROW_HEIGHT_DP),
             )
         }
         cancelButton = Button(this).apply {
@@ -282,16 +314,17 @@ class LiveTypeImeService : InputMethodService() {
             setOnClickListener {
                 cancelDictation(clearComposingText = true, reason = "user-cancelled")
             }
-            layoutParams = LinearLayout.LayoutParams(0, dp(52), 1f).apply {
-                marginEnd = dp(6)
-            }
+            layoutParams =
+                LinearLayout.LayoutParams(0, dp(ACTION_ROW_HEIGHT_DP), 1f).apply {
+                    marginEnd = dp(6)
+                }
         }
         settingsButton = Button(this).apply {
             setText(R.string.action_settings)
             isAllCaps = false
             fitLabel()
             setOnClickListener { openSettings() }
-            layoutParams = LinearLayout.LayoutParams(0, dp(52), 1f)
+            layoutParams = LinearLayout.LayoutParams(0, dp(ACTION_ROW_HEIGHT_DP), 1f)
         }
         actions.addView(cancelButton)
         actions.addView(settingsButton)
@@ -1447,13 +1480,19 @@ class LiveTypeImeService : InputMethodService() {
          * | 64dp | 3×64 + 2×8 = 208 | 165dp, but at the accessibility floor |
          *
          * At 72dp the left column keeps 141dp, which covers:
-         * - both indicators: 30 + 14 + 30 = 74dp, with room to spare;
-         * - the status line: 141 − 18 (alarm icon) − 6 (its margin) = 117dp,
-         *   about 15 characters per line at 15sp, so the longest string —
-         *   Russian `status_listening`, 45 chars — wraps to four lines and
-         *   still fits inside the 265dp the grid is tall;
+         * - the indicator row: 30 + 14 + 30 = 74dp of connection glyphs at the
+         *   start, a 20dp alarm slot ([WARNING_ICON_DP]) pinned to the end, and
+         *   47dp of slack between them holding the two apart;
+         * - the status line: the **whole** 141dp. The alarm used to sit in this
+         *   row and take 18 + 6 = 24dp off it permanently; moving it up into
+         *   the indicator row bought the text back that gutter and put its
+         *   first character on the column's left edge. ~18 characters per line
+         *   at 15sp, so the longest string — Russian `status_listening`, 44
+         *   chars — wraps to three or four lines. See
+         *   [THUMB_BUTTON_HEIGHT_DP] for the height that has to hold them;
          * - Cancel and Settings at (141 − 6) / 2 ≈ 67dp each, which needs the
-         *   label autosizing in `fitLabel()` but no wrapping.
+         *   label autosizing in `fitLabel()` but no wrapping. Unchanged: this
+         *   rework moved no width around.
          *
          * 72dp is 1.5× Material's 48dp minimum touch target and above the ~64dp
          * floor for a primary control, so the thumb loses nothing that matters.
@@ -1508,10 +1547,25 @@ class LiveTypeImeService : InputMethodService() {
          *   swings up a shallow arc, so vertical slack forgives the aim error
          *   this grid actually suffers, and the extra travel between rows costs
          *   nothing because the row gap grew with it.
-         * - The left column gets 233dp of usable height against 202dp before,
-         *   all of it to the weight-1 status block: the four-line Russian
-         *   `status_mic_in_use` clears the grid with room over, and the two
-         *   indicators and the 52dp action row are unchanged.
+         * - The left column is exactly as tall as the grid — 110 + 13 + 110 =
+         *   **233dp** — because it is MATCH_PARENT inside the same horizontal
+         *   row. It spends that height as follows, and the arithmetic has to
+         *   close on 233 or something floats:
+         *
+         *   | | dp |
+         *   |---|---|
+         *   | indicator row ([INDICATOR_DP]), top-anchored to the grid | 30 |
+         *   | gap ([LEFT_COLUMN_GAP_DP]) | 12 |
+         *   | status text, weight 1 — takes what is left | **107** |
+         *   | gap ([LEFT_COLUMN_GAP_DP]) | 12 |
+         *   | Cancel / Settings ([ACTION_ROW_HEIGHT_DP]), bottom-anchored | 72 |
+         *   | **total** | **233** |
+         *
+         *   107dp holds five lines of 15sp status text (≈18dp each) and four
+         *   even at a 1.3 font scale, so the longest Russian strings —
+         *   `status_listening` and `status_stopped_time_limit` — never push the
+         *   buttons and never move them: the slack lives *inside* the weight-1
+         *   text view, which is why one line and four lay out identically.
          * - The 64dp accessibility floor is measured on the smaller dimension,
          *   which is still the 72dp width.
          */
@@ -1541,6 +1595,11 @@ class LiveTypeImeService : InputMethodService() {
          * stack, in that order, and each keeps its own reason to exist: fold
          * them into one number and the gesture area is counted twice on devices
          * that report an inset and not at all on the ones that do not.
+         *
+         * Both columns end on the same baseline above this gap, so it belongs
+         * to the keyboard as a whole and not to the left column. Making it read
+         * that way was a matter of giving the left column a bottom heavy enough
+         * to be a floor — see [ACTION_ROW_HEIGHT_DP].
          */
         private const val BUTTON_BLOCK_LIFT_DP = 63
 
@@ -1559,8 +1618,47 @@ class LiveTypeImeService : InputMethodService() {
         private const val INDICATOR_DP = 30
         private const val INDICATOR_ICON_DP = 18
 
-        /** Alarm glyph beside the status line; sized against the 15sp text. */
-        private const val STATUS_ICON_DP = 18
+        /**
+         * How far an indicator's glyph sits inside its own box, i.e. exactly
+         * `(INDICATOR_DP - INDICATOR_ICON_DP) / 2`. The indicator row is pulled
+         * out by this much so the glyph — not the invisible 30dp box around it —
+         * shares a left edge with the status text and the Cancel button.
+         */
+        private const val INDICATOR_GLYPH_INSET_DP = (INDICATOR_DP - INDICATOR_ICON_DP) / 2
+
+        /**
+         * Alarm glyph at the end of the indicator row. 20dp rather than the 18
+         * it was beside the text: it no longer has 15sp lettering next to it to
+         * take its scale from, and it now has to hold the far end of a 141dp
+         * row against two 30dp connection glyphs.
+         */
+        private const val WARNING_ICON_DP = 20
+
+        /**
+         * The single gap used twice in the status column: indicators → status
+         * text, and status text → action row. Two anchored rows, one elastic
+         * block between them, one spacing value — see the table on
+         * [THUMB_BUTTON_HEIGHT_DP].
+         */
+        private const val LEFT_COLUMN_GAP_DP = 12
+
+        /**
+         * Cancel / Settings, 72dp tall — up from 52.
+         *
+         * The thumb-reach lift ([BUTTON_BLOCK_LIFT_DP]) left 63dp of deliberate
+         * emptiness under the whole content block. Both columns end on the same
+         * baseline above it, but a 52dp pair of text buttons had far too little
+         * weight to sit opposite a 110dp key row, so on the left that shared
+         * emptiness read as a gap the layout had forgotten to fill rather than
+         * as the lift the user asked for. 72dp gives the bottom of the column
+         * enough mass to look like a floor — and it is deliberately the same 72
+         * as [THUMB_BUTTON_DP], so the two columns end on a common module
+         * rather than on two arbitrary numbers.
+         *
+         * It costs the status text 20dp of the height it was never using; the
+         * table on [THUMB_BUTTON_HEIGHT_DP] shows the 107dp that remains.
+         */
+        private const val ACTION_ROW_HEIGHT_DP = 72
 
         private val KEYBOARD_BACKGROUND = Color.parseColor("#E0EAEC")
         private val STATUS_COLOR = Color.rgb(35, 60, 60)

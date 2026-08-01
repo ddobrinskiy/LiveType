@@ -9,7 +9,9 @@
     <string name="app_tagline">Voice input via OpenAI gpt-live-transcribe</string>
 
     <!-- Keyboard status line -->
+    <!-- status_ready is shown only once the OpenAI socket is actually open. -->
     <string name="status_ready">Ready to dictate</string>
+    <string name="status_not_connected">Not connected — tap the microphone</string>
     <string name="status_password_field">Dictation is disabled in password fields</string>
     <string name="status_getting_key">Getting a temporary key…</string>
     <string name="status_connecting_openai">Connecting to OpenAI…</string>
@@ -38,6 +40,7 @@
     <string name="cd_connecting">Connecting</string>
     <string name="cd_transcribing">Transcribing</string>
     <string name="cd_newline">Insert a line break</string>
+    <string name="cd_backspace">Delete the previous character</string>
 
     <!-- Connection indicators -->
     <string name="indicator_server">Token server</string>

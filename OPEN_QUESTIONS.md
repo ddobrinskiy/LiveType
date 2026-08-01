@@ -98,11 +98,6 @@ and nothing in our UI would currently reveal it.
 `.github/workflows/ci.yml` is written but no runner has executed it. It will
 first run — and possibly first fail — on push (A3).
 
-### B4 — Prewarm does not resume after a completed dictation
-By design: re-warming immediately would overwrite the "Done" feedback. So the
-first tap after finishing a phrase reconnects rather than reusing. Tell me if
-that feels slow in practice.
-
 ### B5 — Status text is indented relative to the indicators
 The warning-icon slot is reserved permanently so the line cannot jump when the
 icon appears. Cosmetic side effect: the status text starts ~24dp right of the
@@ -112,6 +107,14 @@ indicators. Easy to align if it bothers you.
 Figures come from usage OpenAI reports to the phone, which the phone forwards.
 A session lost to a dead network under-counts. It will not match an invoice to
 the cent.
+
+### B7 — A held-open session may now hit OpenAI's own session limit *(raised 2026-08-01)*
+Now that a finished phrase keeps the socket (see B4 below), a session used
+steadily can live far longer than one that reconnected every phrase. If OpenAI
+closes it server-side at its own maximum age, `onClosed` surfaces that as a red
+"connection closed" status and the next mic tap reconnects from scratch. That is
+honest rather than silent, but it is a failure banner where there used to be
+none. Not yet observed; the 5-minute idle ceiling only bounds *unused* sessions.
 
 ---
 
@@ -125,4 +128,5 @@ the cent.
 | R4 | Use the OpenAI Costs API for real spend? | **No.** Needs an admin key (403 `Missing scopes`), UTC-day buckets only, no per-model grouping, and ~119 endpoints of blast radius. Device-reported usage is exact for the default model and real-time. | 2026-08-01 |
 | R5 | Can we get the microphone back from a screen recorder? | **No** — Android policy, not a bug. Handle it honestly instead. | 2026-08-01 |
 | R6 | Dark theme for keyboard contrast? | **No.** Background `#E0EAEC`; system glyphs made dark via `APPEARANCE_LIGHT_NAVIGATION_BARS`. | 2026-08-01 |
+| B4 | Should prewarm resume after a completed dictation? | **The question was wrong.** Nothing needs re-warming: one transcription session handles many phrases — verified on the live API, three phrases through one socket, each with its own `item_id` and `usage`. `completeSession` now keeps the socket and returns to `READY` with the indicators green; the "Done" feedback survives because nothing reconnects over it. The 5-minute ceiling is re-armed per phrase so it measures idleness, not session age. | 2026-08-01 |
 | R7 | Should Paste also copy to the system clipboard? | **No.** The last phrase lives in app memory for five minutes and is inserted from there. The system clipboard is readable by every app — a materially weaker privacy posture, and inconsistent with "LiveType keeps no dictation history". | 2026-08-01 |

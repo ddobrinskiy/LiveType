@@ -11,6 +11,7 @@ import android.graphics.Typeface
 import android.os.Bundle
 import android.provider.Settings
 import android.text.InputType
+import android.text.method.PasswordTransformationMethod
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -185,8 +186,16 @@ class MainActivity : Activity() {
 
         secretInput = field(
             hint = getString(R.string.hint_device_secret),
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD,
-        )
+            // Deliberately NOT TYPE_TEXT_VARIATION_PASSWORD. That flag is what
+            // makes an autofill service treat the field as a credential and
+            // offer to save it — Bitwarden prompted every time this screen was
+            // left, and importantForAutofill alone did not stop it. The masking
+            // is all we ever wanted, so do it with a transformation method,
+            // which is a pure display concern the system does not inspect.
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS,
+        ).apply {
+            transformationMethod = PasswordTransformationMethod.getInstance()
+        }
         content.addView(label(getString(R.string.label_device_secret)))
         content.addView(secretInput)
 

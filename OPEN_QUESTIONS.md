@@ -70,6 +70,26 @@ Figures come from usage OpenAI reports to the phone, which the phone forwards.
 A session lost to a dead network under-counts. It will not match an invoice to
 the cent.
 
+### B8 — The indicator tap now uses a popup, not a `Toast` *(raised 2026-08-01)*
+**You can have the `Toast` back, but it will not be visible.** Tapping an
+indicator has failed twice. The first diagnosis (part of the 30dp target sat
+outside its parent, where Android draws but does not dispatch) was correct and
+is fixed; it was not the whole story. The rest is that a `Toast` is a
+`TYPE_TOAST` window, which AOSP layers at 7, while an IME is layered at 13 — the
+keyboard is drawn *over* the toast — and a text toast sits 48dp above the bottom
+of the screen, roughly 300dp inside a keyboard that is now ~364dp tall.
+`Toast.setGravity` cannot move it: it is a documented no-op for text toasts at
+`targetSdk` 30+, and we target 35.
+
+So the tap now puts up a small label in the keyboard's own window (a
+`PopupWindow` anchored under the glyph, 2s, untouchable). The `Toast` call is
+still there as the fallback when the popup cannot be shown. If you would rather
+have only the toast, say so — it is one line — but note that the toast was last
+*seen* working when the keyboard was ~216dp tall, before the two commits that
+each grew it by a centimetre, and nothing about it has worked since. Worth a
+look on the device: if you see **two** overlapping messages, the layering above
+does not hold on your Android build and the popup should go instead.
+
 ### B7 — A held-open session may now hit OpenAI's own session limit *(raised 2026-08-01)*
 Now that a finished phrase keeps the socket (see B4 below), a session used
 steadily can live far longer than one that reconnected every phrase. If OpenAI

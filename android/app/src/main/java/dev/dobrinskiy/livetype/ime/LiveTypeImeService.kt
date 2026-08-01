@@ -1,11 +1,13 @@
 package dev.dobrinskiy.livetype.ime
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
 import android.graphics.PorterDuff
 import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
 import android.util.Log
 import android.inputmethodservice.InputMethodService
 import android.os.Build
@@ -15,7 +17,9 @@ import android.text.InputType
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.KeyEvent
+import android.view.MotionEvent
 import android.view.View
+import android.view.ViewGroup
 import android.view.WindowInsets
 import android.view.WindowInsetsController
 import android.view.inputmethod.EditorInfo
@@ -24,6 +28,7 @@ import android.widget.FrameLayout
 import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.LinearLayout
+import android.widget.PopupWindow
 import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
@@ -71,6 +76,17 @@ class LiveTypeImeService : InputMethodService() {
     private lateinit var settingsButton: Button
     private lateinit var serverIndicator: Indicator
     private lateinit var openAiIndicator: Indicator
+
+    /**
+     * The transient label an indicator tap puts up — see [showIndicatorPopup]
+     * for why this is a [PopupWindow] and not the [Toast] it replaced at the
+     * point of use. At most one is ever live; showing a second dismisses the
+     * first, and every route out of the keyboard dismisses it.
+     */
+    private var indicatorPopup: PopupWindow? = null
+
+    /** Takes [indicatorPopup] down again; see [INDICATOR_POPUP_MS]. */
+    private val dismissIndicatorPopupRunnable = Runnable { dismissIndicatorPopup() }
 
     private var state = State.IDLE
     private var activeEditorInfo: EditorInfo? = null
@@ -185,6 +201,10 @@ class LiveTypeImeService : InputMethodService() {
     private var abandonedCompletions = 0
 
     override fun onCreateInputView(): View {
+        // The input view can be rebuilt at any time (configuration change, the
+        // system recreating the IME). A popup still anchored to the outgoing
+        // hierarchy would be orphaned and leak its window.
+        dismissIndicatorPopup()
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(KEYBOARD_BACKGROUND)
@@ -515,6 +535,14 @@ class LiveTypeImeService : InputMethodService() {
         applyNavigationBarAppearance()
     }
 
+    override fun onWindowHidden() {
+        // The popup is a sub-window of the keyboard's window. If the keyboard
+        // goes away first the popup is orphaned, which is exactly what
+        // WindowLeaked reports.
+        dismissIndicatorPopup()
+        super.onWindowHidden()
+    }
+
     /**
      * Match the navigation bar to the keyboard and ask the system to draw the
      * IME switcher glyphs (⌄ and the globe) dark instead of light.
@@ -606,6 +634,9 @@ class LiveTypeImeService : InputMethodService() {
     }
 
     override fun onDestroy() {
+        // Before the blanket callback removal below, which would otherwise drop
+        // the dismissal without performing it and leave the window behind.
+        dismissIndicatorPopup()
         cancelDictation(clearComposingText = false, reason = "service-destroyed")
         // Explicitly, before the blanket removal below: this both drops the
         // pending five-minute expiry callback and releases the transcript, so
@@ -1451,6 +1482,7 @@ class LiveTypeImeService : InputMethodService() {
 
     private enum class ConnectionState { IDLE, LOADING, OK, ERROR }
 
+    @SuppressLint("ClickableViewAccessibility")
     private fun createIndicator(iconRes: Int, labelRes: Int): Indicator {
         val icon = ImageView(this).apply {
             setImageResource(iconRes)
@@ -1458,6 +1490,7 @@ class LiveTypeImeService : InputMethodService() {
             // accessibility node the user can actually activate is the one with
             // a name. Labelling the glyph too would announce it twice.
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            makeInertToTouch()
             layoutParams = FrameLayout.LayoutParams(
                 dp(INDICATOR_ICON_DP),
                 dp(INDICATOR_ICON_DP),
@@ -1473,6 +1506,10 @@ class LiveTypeImeService : InputMethodService() {
                 INDICATOR_LOADING,
                 PorterDuff.Mode.SRC_IN,
             )
+            // The one child that really does cover the box: 38 of its 48dp,
+            // VISIBLE for the whole of LOADING, and animating over the lot. See
+            // [makeInertToTouch] for why it is spelled out rather than assumed.
+            makeInertToTouch()
             layoutParams = FrameLayout.LayoutParams(
                 dp(INDICATOR_RING_DP),
                 dp(INDICATOR_RING_DP),
@@ -1487,6 +1524,7 @@ class LiveTypeImeService : InputMethodService() {
             textSize = INDICATOR_BADGE_SP
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(INDICATOR_ERROR)
+            makeInertToTouch()
             layoutParams = FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.WRAP_CONTENT,
                 FrameLayout.LayoutParams.WRAP_CONTENT,
@@ -1509,9 +1547,117 @@ class LiveTypeImeService : InputMethodService() {
             addView(badge)
         }
         val indicator = Indicator(container, icon, spinner, badge, labelRes)
+        // The listener goes on the outermost view of the indicator, which is
+        // also the largest and the only one any of the three children is drawn
+        // inside. Nothing here can swallow a tap: the children are inert (see
+        // [makeInertToTouch]) and a FrameLayout that no child consumed for
+        // falls through to the group's own onTouchEvent, which is clickable.
         container.setOnClickListener { showConnectionStatus(indicator) }
+        // Says "the finger landed on the target" independently of everything
+        // downstream. Without it a silent tap is indistinguishable from a tap
+        // that arrived and produced no visible feedback — the exact ambiguity
+        // that cost this bug two rounds. Deliberately returns false: the click
+        // listener above stays the single activation path, so TalkBack,
+        // performClick() and a finger tap cannot diverge, and nothing here can
+        // consume the gesture and break the click it is only observing. Hence
+        // the ClickableViewAccessibility suppression on this method.
+        container.setOnTouchListener { view, event ->
+            if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+                Log.i(
+                    TAG,
+                    "Indicator touch DOWN on ${getString(labelRes)} at " +
+                        "(${event.x.toInt()},${event.y.toInt()}) in " +
+                        "${view.width}x${view.height}px",
+                )
+            }
+            false
+        }
+        // Fires once, on the first real layout pass, and reports whether the
+        // target is actually reachable. This is the guard against a third
+        // regression: any future change that shrinks the box to nothing or
+        // pushes it outside an ancestor — the failure mode a negative margin
+        // caused, which draws perfectly and is silent to the compiler, to lint
+        // and to a screenshot — says so in logcat instead of being discovered
+        // by the user.
+        container.addOnLayoutChangeListener(
+            object : View.OnLayoutChangeListener {
+                override fun onLayoutChange(
+                    v: View,
+                    left: Int,
+                    top: Int,
+                    right: Int,
+                    bottom: Int,
+                    oldLeft: Int,
+                    oldTop: Int,
+                    oldRight: Int,
+                    oldBottom: Int,
+                ) {
+                    v.removeOnLayoutChangeListener(this)
+                    logTouchTargetGeometry(v, getString(labelRes))
+                }
+            },
+        )
         setIndicator(indicator, ConnectionState.IDLE)
         return indicator
+    }
+
+    /**
+     * Takes a decorative child out of the touch path for good.
+     *
+     * A [FrameLayout] hands ACTION_DOWN to its children in reverse draw order
+     * before trying its own `onTouchEvent`, and a child that consumes it wins
+     * outright — the parent's `OnClickListener` never runs. None of an
+     * indicator's three children is clickable by default, so today this changes
+     * nothing; it is here because "by default" is the part that quietly stops
+     * being true. `ProgressBar` in particular is a moving, mostly-opaque
+     * 38dp overlay across a 48dp target for the whole of `LOADING`, and
+     * `FOCUSABLE_AUTO` (the API 26+ default) resolves to focusable the moment
+     * anything makes a view clickable.
+     */
+    private fun View.makeInertToTouch() {
+        isClickable = false
+        isLongClickable = false
+        isFocusable = false
+    }
+
+    /**
+     * Logs where a touch target really landed, and whether every ancestor
+     * contains it.
+     *
+     * Android hit-tests a child against its own bounds *and* refuses to
+     * dispatch into the part of a child that lies outside its parent, so a view
+     * can be perfectly visible — a negative margin, `clipChildren = false`, an
+     * overflowing row on a narrow screen or at a large display size — and still
+     * be dead to the finger. Nothing in the toolchain warns about it. This
+     * does, once per indicator, on the first layout.
+     */
+    private fun logTouchTargetGeometry(view: View, label: String) {
+        val problems = StringBuilder()
+        var child: View = view
+        var left = 0
+        var top = 0
+        var parent = child.parent
+        while (parent is ViewGroup) {
+            left += child.left
+            top += child.top
+            if (left < 0 || top < 0 ||
+                left + view.width > parent.width ||
+                top + view.height > parent.height
+            ) {
+                problems.append(
+                    " outside ${parent.javaClass.simpleName}" +
+                        "(${parent.width}x${parent.height}, at $left,$top)",
+                )
+            }
+            child = parent
+            parent = child.parent
+        }
+        val size = "${view.width}x${view.height}px"
+        if (view.width == 0 || view.height == 0 || problems.isNotEmpty()) {
+            Log.w(TAG, "Indicator target '$label' is not fully tappable: $size,$problems")
+        } else {
+            Log.i(TAG, "Indicator target '$label' laid out $size, inside every parent")
+        }
     }
 
     /**
@@ -1564,7 +1710,98 @@ class LiveTypeImeService : InputMethodService() {
         val message =
             getString(R.string.connection_toast, getString(indicator.labelRes), getString(statusRes))
         Log.i(TAG, "Indicator tapped: $message")
+        if (showIndicatorPopup(indicator.container, message)) return
+        // Fallback only, and it is the old behaviour unchanged: a Toast cannot
+        // be seen while this keyboard is up (see [showIndicatorPopup]), but if
+        // the popup could not be put up at all — no window token, the view
+        // detached between the touch and this callback — a Toast that the user
+        // may not see beats no attempt at all, and it will be seen if the
+        // keyboard is already on its way out.
+        Log.w(TAG, "Indicator popup unavailable; falling back to a Toast")
         Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+    }
+
+    /**
+     * Puts [message] up inside the keyboard's own window, just under the
+     * indicator that was tapped. Returns false if it could not be shown.
+     *
+     * **Why not the [Toast] this replaced.** A Toast is a `TYPE_TOAST` window,
+     * which AOSP layers at 7; an IME is `TYPE_INPUT_METHOD`, layered at 13
+     * (`WindowManagerPolicy.getWindowLayerFromTypeLw`). The toast is therefore
+     * drawn *behind* the keyboard, and it is anchored 48dp
+     * (`R.dimen.toast_y_offset`) above the bottom of the screen — which is
+     * roughly 300dp inside a keyboard that is now ~364dp tall. So it is
+     * covered, completely, every time. It was not always: the toast was
+     * confirmed on the device when the block was ~216dp, and the two commits
+     * that grew the keyboard by a centimetre each are what buried it. Nor can
+     * it be nudged clear — `Toast.setGravity` is documented as a no-op for text
+     * toasts on apps targeting API 30+, and this one targets 35.
+     *
+     * A [PopupWindow] anchored to a view inside the IME is a *sub*-window of
+     * the keyboard's window, so it is layered against its parent rather than
+     * against the IME as a whole and is always drawn on top of it. This is the
+     * same mechanism every soft keyboard's key-preview uses, and it is the only
+     * one that does not depend on the keyboard's height.
+     *
+     * It is deliberately untouchable: it must never eat the next tap, and it
+     * must never take focus from the editor the user is dictating into.
+     */
+    private fun showIndicatorPopup(anchor: View, message: String): Boolean {
+        dismissIndicatorPopup()
+        if (!anchor.isAttachedToWindow || anchor.windowToken == null) return false
+
+        val label = TextView(this).apply {
+            text = message
+            textSize = INDICATOR_POPUP_SP
+            setTextColor(POPUP_TEXT_COLOR)
+            maxWidth = dp(INDICATOR_POPUP_MAX_WIDTH_DP)
+            setPadding(
+                dp(INDICATOR_POPUP_PADDING_H_DP),
+                dp(INDICATOR_POPUP_PADDING_V_DP),
+                dp(INDICATOR_POPUP_PADDING_H_DP),
+                dp(INDICATOR_POPUP_PADDING_V_DP),
+            )
+            background = GradientDrawable().apply {
+                setColor(POPUP_BACKGROUND)
+                cornerRadius = dp(INDICATOR_POPUP_CORNER_DP).toFloat()
+            }
+        }
+        val popup = PopupWindow(
+            label,
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            false,
+        ).apply {
+            // Never intercept: the keyboard underneath stays fully usable while
+            // the label is up, and the label cannot swallow the tap that
+            // dismisses it.
+            isTouchable = false
+            isOutsideTouchable = false
+            isFocusable = false
+            // Keeps a long Russian string on screen rather than half off the
+            // right edge of a 411dp phone.
+            isClippingEnabled = true
+        }
+        val shown = runCatching {
+            popup.showAsDropDown(anchor, 0, dp(INDICATOR_POPUP_OFFSET_DP))
+        }
+        if (shown.isFailure) {
+            Log.w(TAG, "Indicator popup refused: ${shown.exceptionOrNull()?.message}")
+            return false
+        }
+        indicatorPopup = popup
+        mainHandler.postDelayed(dismissIndicatorPopupRunnable, INDICATOR_POPUP_MS)
+        return true
+    }
+
+    /**
+     * Idempotent, and called from every route out of the keyboard: a popup
+     * whose parent window has gone is a leaked window.
+     */
+    private fun dismissIndicatorPopup() {
+        mainHandler.removeCallbacks(dismissIndicatorPopupRunnable)
+        indicatorPopup?.let { runCatching { it.dismiss() } }
+        indicatorPopup = null
     }
 
     private fun setConnectionStates(server: ConnectionState, openAi: ConnectionState) {
@@ -2076,10 +2313,47 @@ class LiveTypeImeService : InputMethodService() {
          * the most recessive of the four, because it is a desaturated slate in
          * the background's own hue family while OK and ERROR are saturated.
          */
+        /**
+         * How long an indicator's status label stays up.
+         *
+         * Matched to `Toast.LENGTH_SHORT` (2s), which is what this replaced, so
+         * the feel is unchanged — long enough to read one short line, short
+         * enough that it is gone before the thumb reaches the microphone.
+         */
+        private const val INDICATOR_POPUP_MS = 2_000L
+
+        /**
+         * The label's own metrics. 14sp rather than the status line's 15: it is
+         * a transient overlay, not the column's text, and it must not read as
+         * having replaced the status line underneath it. 280dp keeps the
+         * longest string — Russian `status_not_connected` behind a label — on
+         * two lines inside a 411dp screen.
+         */
+        private const val INDICATOR_POPUP_SP = 14f
+        private const val INDICATOR_POPUP_MAX_WIDTH_DP = 280
+        private const val INDICATOR_POPUP_PADDING_H_DP = 12
+        private const val INDICATOR_POPUP_PADDING_V_DP = 8
+        private const val INDICATOR_POPUP_CORNER_DP = 8
+
+        /**
+         * Vertical gap between the indicator's 48dp box and the label under it.
+         * Small on purpose: the label has to read as belonging to the glyph
+         * that was tapped, and there are two glyphs 26dp apart.
+         */
+        private const val INDICATOR_POPUP_OFFSET_DP = 2
+
         private val INDICATOR_IDLE = Color.parseColor("#74848B")
         private val INDICATOR_LOADING = Color.parseColor("#33474D")
         private val INDICATOR_OK = Color.parseColor("#1E9E5A")
         private val INDICATOR_ERROR = Color.parseColor("#C0392B")
         private val BUTTON_ICON_COLOR = Color.parseColor("#1E2E33")
+
+        /**
+         * The indicator label: dark slate rather than the keyboard's own pale
+         * background, so it reads as floating above the keyboard rather than as
+         * part of it, and light text on it clears 4.5:1 comfortably.
+         */
+        private val POPUP_BACKGROUND = Color.parseColor("#22333A")
+        private val POPUP_TEXT_COLOR = Color.parseColor("#F2F6F7")
     }
 }

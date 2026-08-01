@@ -144,19 +144,19 @@ needs a fix and then a re-test — none of these has been verified as working.
 
 Things below are **not** verified and should not be assumed working.
 
-3. **The dictation prompt is now English.** The clean install reset it to the
+1. **The dictation prompt is now English.** The clean install reset it to the
    English default because the device locale is English; it used to be the
    Russian wording. Semantically the same instruction, but it was not the
    user's earlier setting. `adb shell input text` cannot type Cyrillic, so
    restoring it needs a few taps by hand.
-4. **The silenced-mic UI (#17) has never been seen.** The detection itself is
+2. **The silenced-mic UI (#17) has never been seen.** The detection itself is
    confirmed working (#16 — the user saw the message), but the red text and
    warning icon landed afterwards and nobody has looked at that state since.
-5. **The release APK is unsigned**, so it cannot be attached to a GitHub Release
+3. **The release APK is unsigned**, so it cannot be attached to a GitHub Release
    as is.
-6. **Long-silence behaviour is unknown.** When the mic is taken mid-dictation,
+4. **Long-silence behaviour is unknown.** When the mic is taken mid-dictation,
    OpenAI may end the turn on its own regardless of what the UI shows. Untested.
-7. **The OpenAI indicator never shows the spinner (#2).** `openSession` sets it
+5. **The OpenAI indicator never shows the spinner (#2).** `openSession` sets it
    to `IDLE` and the only other writes are `OK` (on `session.updated`) and
    `ERROR`. Nothing anywhere in the file's history has ever set it to
    `LOADING`, so during the whole OpenAI connect — the slower of the two legs —
@@ -164,11 +164,11 @@ Things below are **not** verified and should not be assumed working.
    flips to green. The token-server indicator does spin correctly, which is
    presumably why this went unnoticed on device. One line in
    `connectRealtime()` fixes it.
-8. **`wrangler.jsonc` has a placeholder `database_id` (#21).** It still reads
+6. **`wrangler.jsonc` has a placeholder `database_id` (#21).** It still reads
    `REPLACE_WITH_ID_FROM_WRANGLER_D1_CREATE`. `wrangler dev` creates its D1
    locally and ignores the field, which is why the billing UI works on the
    laptop, but `wrangler deploy` would fail or bind nothing. Blocked on the
    same A2 as gap 3.
-9. **Dead constant `INDICATOR_IDLE`** in `LiveTypeImeService` — declared,
+7. **Dead constant `INDICATOR_IDLE`** in `LiveTypeImeService` — declared,
     never read. `setIndicator` deliberately paints `IDLE` with
     `INDICATOR_ERROR`. Cosmetic, but it is the visible half of gap 8.

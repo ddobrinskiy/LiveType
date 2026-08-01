@@ -54,7 +54,7 @@ Last updated: 2026-08-01.
 |---|---|---|---|---|---|
 | 15 | Silenced-mic detection (screen recorder, calls) | build only | yes | yes | yes |
 | 16 | Silenced-mic shown red + warning icon, auto-recovers | build only | | | yes |
-| 17 | Prewarm debounce + 8s grace + 5min ceiling | device — measured 6 open/close cycles → **0** extra token requests, 6 reuses | | | yes |
+| 17 | Prewarm debounce + 8s grace + 5min ceiling | device — measured 6 open/close cycles → **0** extra token requests, 6 reuses | yes | **yes** — stays alive across field changes, settings, typing; closes on IME switch, which is by design | yes |
 | 18 | Fix: mic tap mid-connect + focus loss no longer records with the keyboard hidden | build only | | | yes |
 | 19 | Session survives a completed phrase: back to `READY`, indicators stay green, ceiling re-armed per phrase | device | yes | **yes** | yes |
 

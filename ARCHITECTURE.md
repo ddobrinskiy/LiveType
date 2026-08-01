@@ -161,6 +161,16 @@ when the socket opened**: `beginRecording` drops it and `completeSession`
 re-arms it. Armed once at `openSession` it would have killed an actively used
 session mid-conversation.
 
+**Switching to another keyboard closes the session immediately — deliberately.**
+Focus moving inside an app is accidental (a different field, the keyboard
+hidden and shown), so it earns the grace period. Choosing a different IME is an
+explicit "I am done dictating", and the next dictation could be an hour away.
+Holding the socket past that point would keep pinging every 20 s, keeping the
+radio out of deep sleep, for a session nobody will use — and OpenAI's own
+session limit would eventually close it anyway, surfacing as a spurious
+"connection closed". This is why `cancelDictation("keyboard-switched")` does
+not go through the grace timer. Do not "fix" it.
+
 `generation` is **not** bumped on reuse — and a completed phrase is a reuse. It
 tracks the lifetime of a `RealtimeTranscriber`; bumping it while the transcriber
 survives would orphan the callbacks of a socket that is still live, leaving the

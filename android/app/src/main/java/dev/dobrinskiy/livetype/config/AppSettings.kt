@@ -28,9 +28,19 @@ data class LiveTypeSettings(
     val returnToPreviousKeyboard: Boolean,
     /** Which worker this endpoint came from. Debug-only affordance; see [EndpointMode]. */
     val endpointMode: EndpointMode = EndpointMode.default(),
+    /**
+     * Recording stops itself after this many minutes. Unlike [endpointMode]
+     * this is not a development affordance — every build shows the dropdown,
+     * because every user can forget to tap stop. See [RecordingLimit].
+     */
+    val maxRecordingMinutes: Int = RecordingLimit.default(),
 ) {
     val isConfigured: Boolean
         get() = isAllowedTokenEndpoint(tokenEndpoint) && deviceSecret.isNotBlank()
+
+    /** [maxRecordingMinutes] as a `postDelayed` delay. */
+    val maxRecordingMillis: Long
+        get() = RecordingLimit.millisFor(maxRecordingMinutes)
 
     /**
      * `/usage` on the same worker as [tokenEndpoint]. Only one URL is ever
@@ -60,6 +70,7 @@ object AppSettings {
     private const val KEYWORDS = "keywords"
     private const val RETURN_TO_PREVIOUS = "return_to_previous"
     private const val ENDPOINT_MODE = "endpoint_mode"
+    private const val MAX_RECORDING_MINUTES = "max_recording_minutes"
 
     // Seeded from resources so the first run matches the device locale.
     fun load(context: Context): LiveTypeSettings {
@@ -98,6 +109,12 @@ object AppSettings {
                 .toList(),
             returnToPreviousKeyboard = preferences.getBoolean(RETURN_TO_PREVIOUS, true),
             endpointMode = EndpointMode.from(preferences.getString(ENDPOINT_MODE, null)),
+            // Same rule as every other setting: the constant is only the
+            // default, and anything the user saved wins. `from` additionally
+            // clamps a value that is no longer offered.
+            maxRecordingMinutes = RecordingLimit.from(
+                preferences.getInt(MAX_RECORDING_MINUTES, RecordingLimit.default()),
+            ),
         )
     }
 
@@ -111,6 +128,7 @@ object AppSettings {
             .putString(KEYWORDS, settings.keywords.joinToString("\n"))
             .putBoolean(RETURN_TO_PREVIOUS, settings.returnToPreviousKeyboard)
             .putString(ENDPOINT_MODE, settings.endpointMode.name)
+            .putInt(MAX_RECORDING_MINUTES, RecordingLimit.from(settings.maxRecordingMinutes))
             .apply()
     }
 }

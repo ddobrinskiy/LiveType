@@ -33,6 +33,7 @@ import dev.dobrinskiy.livetype.audio.PcmAudioRecorder
 import dev.dobrinskiy.livetype.config.AppSettings
 import dev.dobrinskiy.livetype.config.FeatureFlags
 import dev.dobrinskiy.livetype.config.LiveTypeSettings
+import dev.dobrinskiy.livetype.config.RecordingLimit
 import dev.dobrinskiy.livetype.network.RealtimeTranscriber
 import dev.dobrinskiy.livetype.network.TokenProvider
 import dev.dobrinskiy.livetype.network.UsageReporter
@@ -126,6 +127,31 @@ class LiveTypeImeService : InputMethodService() {
         if (autoStartOnReady) return@Runnable
         tearDownIdleSession("idle-ceiling")
     }
+
+    /**
+     * Hard ceiling on a *recording*, the counterpart to [warmCeilingRunnable].
+     *
+     * Armed in [beginRecording] once the microphone is actually running and
+     * dropped by every route out of [State.RECORDING]; exactly one of the two
+     * ceilings is ever pending, because recording and idling are disjoint. See
+     * [RecordingLimit] for why it exists and [stopRecordingAtLimit] for why it
+     * ends the phrase normally rather than cancelling it.
+     */
+    private val recordingCeilingRunnable = Runnable { stopRecordingAtLimit() }
+
+    /**
+     * The ceiling the current recording was armed with, in minutes. Captured at
+     * [beginRecording] so the status line quotes the limit that actually
+     * applied, even if the setting is changed while the phrase is in flight.
+     */
+    private var recordingLimitMinutes = RecordingLimit.default()
+
+    /**
+     * Set when [recordingCeilingRunnable] — not the user — ended the phrase, so
+     * [completeSession] can say why. Consumed there, and cleared by every other
+     * path out of a recording.
+     */
+    private var stoppedByRecordingLimit = false
 
     override fun onCreateInputView(): View {
         val root = LinearLayout(this).apply {
@@ -726,8 +752,15 @@ class LiveTypeImeService : InputMethodService() {
     }
 
     private fun beginRecording(thisGeneration: Int) {
-        // The session is in use now: the idle ceiling no longer applies.
+        // The session is in use now: the idle ceiling no longer applies. The
+        // recording ceiling takes over below, once the microphone is really
+        // running — the two never overlap.
         mainHandler.removeCallbacks(warmCeilingRunnable)
+        // A previous phrase's ceiling must never carry into this one. Nothing
+        // should be pending here; removing it costs nothing and makes the
+        // invariant local rather than a claim about every other method.
+        mainHandler.removeCallbacks(recordingCeilingRunnable)
+        stoppedByRecordingLimit = false
         val audioRecorder = PcmAudioRecorder(
             context = this,
             onAudio = { bytes ->
@@ -765,14 +798,48 @@ class LiveTypeImeService : InputMethodService() {
 
         audioRecorder.start().fold(
             onSuccess = {
+                // Only now is audio actually being captured and billed, so this
+                // is where the ceiling starts. The failure branch below goes to
+                // failSession, which drops it again.
+                recordingLimitMinutes = AppSettings.load(this).maxRecordingMinutes
+                mainHandler.postDelayed(
+                    recordingCeilingRunnable,
+                    RecordingLimit.millisFor(recordingLimitMinutes),
+                )
+                Log.i(TAG, "Recording started; ceiling ${recordingLimitMinutes}min")
                 setState(State.RECORDING, getString(R.string.status_listening))
             },
             onFailure = { failSession(it.message ?: getString(R.string.error_mic_start)) },
         )
     }
 
+    /**
+     * The recording ceiling elapsed. Ends the phrase through [finishDictation]
+     * — the exact path the stop square takes — so the audio is committed, the
+     * transcript comes back, the text is inserted, the usage is reported once
+     * and the socket stays warm. **Not** a [cancelDictation] and emphatically
+     * not a [failSession]: the user said something and must not lose it just
+     * because they forgot to stop.
+     *
+     * The only difference from a tap is the wording [completeSession] picks,
+     * which is what [stoppedByRecordingLimit] carries.
+     */
+    private fun stopRecordingAtLimit() {
+        // Defensive: nothing should be able to leave this pending past a
+        // recording, but a stale callback must not commit a phrase that has
+        // already ended.
+        if (state != State.RECORDING) return
+        Log.i(TAG, "Recording ceiling reached (${recordingLimitMinutes}min); finishing phrase")
+        stoppedByRecordingLimit = true
+        finishDictation()
+    }
+
     private fun finishDictation() {
         if (state != State.RECORDING) return
+        // Recording is over on every path through here — the user's tap and
+        // the ceiling alike. Removing the callback while it is the one running
+        // is a documented no-op.
+        mainHandler.removeCallbacks(recordingCeilingRunnable)
         recorder?.stop()
         recorder = null
         setState(State.FINISHING, getString(R.string.status_finishing))
@@ -808,6 +875,10 @@ class LiveTypeImeService : InputMethodService() {
      */
     private fun completeSession(transcript: String, returnToPrevious: Boolean) {
         autoStartOnReady = false
+        // OpenAI can end a turn on its own, so a completion can arrive while
+        // still RECORDING and without finishDictation having run. Recording is
+        // over either way, so its ceiling goes here too.
+        mainHandler.removeCallbacks(recordingCeilingRunnable)
         // After a mid-dictation Enter the head of the transcript is already in
         // the editor, so commit only what is still pending. The local delta
         // buffer — not the server transcript — is what the user actually saw.
@@ -858,10 +929,27 @@ class LiveTypeImeService : InputMethodService() {
         // than setting it above where setState would overwrite it. "Done" is
         // still the feedback for the phrase; READY plus two green indicators
         // is what says the connection is still there.
-        setState(
-            if (socketHeld) State.READY else State.IDLE,
-            getString(if (recognised) R.string.status_done else R.string.status_no_speech),
-        )
+        //
+        // A phrase the ceiling ended says so instead, and says so ahead of
+        // "no speech recognised": an unexpectedly stopped recording is the
+        // surprising part, and leaving it unexplained is what makes it
+        // mysterious. Nothing about it is an error — the text is already in
+        // the editor — so no warning icon and no red.
+        val finalStatus = when {
+            stoppedByRecordingLimit -> getString(
+                R.string.status_stopped_time_limit,
+                resources.getQuantityString(
+                    R.plurals.recording_limit_minutes,
+                    recordingLimitMinutes,
+                    recordingLimitMinutes,
+                ),
+            )
+
+            recognised -> getString(R.string.status_done)
+            else -> getString(R.string.status_no_speech)
+        }
+        stoppedByRecordingLimit = false
+        setState(if (socketHeld) State.READY else State.IDLE, finalStatus)
         val indicators = if (socketHeld) ConnectionState.OK else ConnectionState.IDLE
         setConnectionStates(indicators, indicators)
 
@@ -878,14 +966,19 @@ class LiveTypeImeService : InputMethodService() {
      * reuse in the logs alone.
      */
     private fun cancelDictation(clearComposingText: Boolean, reason: String) {
-        // No timer may outlive the session it was armed for.
+        // No timer may outlive the session it was armed for. This is the path
+        // every deliberate teardown takes — cancel, keyboard switch, password
+        // field, grace and idle expiry, onDestroy — so the recording ceiling
+        // is dropped here and needs no separate handling in any of them.
         mainHandler.removeCallbacks(graceTeardownRunnable)
         mainHandler.removeCallbacks(warmCeilingRunnable)
+        mainHandler.removeCallbacks(recordingCeilingRunnable)
         if (transcriber != null || state != State.IDLE) {
             Log.i(TAG, "Session torn down ($reason) from $state")
         }
         generation += 1
         autoStartOnReady = false
+        stoppedByRecordingLimit = false
         recorder?.stop()
         recorder = null
         transcriber?.clear()
@@ -911,8 +1004,10 @@ class LiveTypeImeService : InputMethodService() {
         Log.e(TAG, "Session torn down (failed from $state): $message")
         mainHandler.removeCallbacks(graceTeardownRunnable)
         mainHandler.removeCallbacks(warmCeilingRunnable)
+        mainHandler.removeCallbacks(recordingCeilingRunnable)
         generation += 1
         autoStartOnReady = false
+        stoppedByRecordingLimit = false
         recorder?.stop()
         recorder = null
         transcriber?.close()
@@ -1303,6 +1398,15 @@ class LiveTypeImeService : InputMethodService() {
          * It is measured from **last activity**, not from when the socket
          * opened: [beginRecording] drops it and [completeSession] re-arms it,
          * so a session carrying phrase after phrase is never cut off mid-way.
+         *
+         * It therefore never competes with the recording ceiling
+         * ([recordingCeilingRunnable], configurable in settings). The two cover
+         * disjoint halves of a session's life — idle and recording — and the
+         * handover is a single pair of lines in each direction:
+         * [beginRecording] drops this one and arms that one,
+         * [completeSession] does the reverse. At most one is ever pending, so
+         * an idle timeout can never cut a recording short and a recording
+         * ceiling can never close a socket the user is merely looking at.
          */
         private const val WARM_SESSION_MAX_MS = 5 * 60_000L
 

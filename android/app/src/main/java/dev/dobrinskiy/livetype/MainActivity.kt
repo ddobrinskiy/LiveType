@@ -29,6 +29,7 @@ import dev.dobrinskiy.livetype.config.AppSettings
 import dev.dobrinskiy.livetype.config.EndpointMode
 import dev.dobrinskiy.livetype.config.FeatureFlags
 import dev.dobrinskiy.livetype.config.LiveTypeSettings
+import dev.dobrinskiy.livetype.config.RecordingLimit
 import dev.dobrinskiy.livetype.config.isAllowedTokenEndpoint
 import dev.dobrinskiy.livetype.network.UsageOutcome
 import dev.dobrinskiy.livetype.network.UsageReporter
@@ -49,6 +50,15 @@ class MainActivity : Activity() {
     private lateinit var keywordsInput: EditText
     private lateinit var returnCheck: CheckBox
     private lateinit var permissionStatus: TextView
+
+    /**
+     * Present in every build, unlike [endpointModeSpinner]: the recording
+     * ceiling is a cost guard for every user, not a development affordance.
+     */
+    private lateinit var recordingLimitSpinner: Spinner
+
+    /** The ceiling currently shown, in minutes. See [RecordingLimit]. */
+    private var maxRecordingMinutes: Int = RecordingLimit.default()
 
     /**
      * Null in release builds, which never show the dropdown and keep the
@@ -173,6 +183,12 @@ class MainActivity : Activity() {
         content.addView(label(getString(R.string.label_keywords)))
         content.addView(keywordsInput)
 
+        // The cost guard: a recording nobody stopped is billed until something
+        // stops it. Shown in release too — see recordingLimitSpinner.
+        content.addView(label(getString(R.string.label_max_recording)))
+        content.addView(buildRecordingLimitSpinner())
+        content.addView(noteText(getString(R.string.note_max_recording)))
+
         returnCheck = CheckBox(this).apply {
             setText(R.string.checkbox_return_keyboard)
             isChecked = true
@@ -237,6 +253,44 @@ class MainActivity : Activity() {
     }
 
     /**
+     * The recording ceiling, 1 to 20 minutes.
+     *
+     * A plain `ArrayAdapter<String>` of pre-formatted labels rather than an
+     * adapter over the numbers: every row is selectable — unlike
+     * [EndpointModeAdapter], nothing here can be unavailable — so the position
+     * indexes straight into [RecordingLimit.OPTIONS] and the only work left is
+     * the plural.
+     */
+    private fun buildRecordingLimitSpinner(): Spinner {
+        val labels = RecordingLimit.OPTIONS.map {
+            resources.getQuantityString(R.plurals.recording_limit_minutes, it, it)
+        }
+        val spinner = Spinner(this).apply {
+            adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_item, labels)
+                .apply { setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item) }
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            )
+            onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+                override fun onItemSelected(
+                    parent: AdapterView<*>?,
+                    view: View?,
+                    position: Int,
+                    id: Long,
+                ) {
+                    maxRecordingMinutes =
+                        RecordingLimit.OPTIONS.getOrElse(position) { RecordingLimit.default() }
+                }
+
+                override fun onNothingSelected(parent: AdapterView<*>?) = Unit
+            }
+        }
+        recordingLimitSpinner = spinner
+        return spinner
+    }
+
+    /**
      * Applies a mode to the endpoint field. A mode with an implied URL owns the
      * field — the URL follows from the choice, so it is filled in and locked
      * rather than typed. CUSTOM hands the field back, restoring the parked URL
@@ -265,6 +319,15 @@ class MainActivity : Activity() {
         promptInput.setText(settings.prompt)
         keywordsInput.setText(settings.keywords.joinToString("\n"))
         returnCheck.isChecked = settings.returnToPreviousKeyboard
+
+        // AppSettings already clamped the stored value into the offered range,
+        // so indexOf finds it; the fallback only covers a range that shrinks.
+        maxRecordingMinutes = settings.maxRecordingMinutes
+        recordingLimitSpinner.setSelection(
+            RecordingLimit.OPTIONS.indexOf(settings.maxRecordingMinutes)
+                .takeIf { it >= 0 }
+                ?: RecordingLimit.OPTIONS.indexOf(RecordingLimit.default()),
+        )
 
         val spinner = endpointModeSpinner
         if (spinner != null) {
@@ -322,6 +385,7 @@ class MainActivity : Activity() {
                     .toList(),
                 returnToPreviousKeyboard = returnCheck.isChecked,
                 endpointMode = endpointMode,
+                maxRecordingMinutes = maxRecordingMinutes,
             ),
         )
         if (endpointMode == EndpointMode.CUSTOM) {
@@ -612,6 +676,14 @@ class MainActivity : Activity() {
         textSize = 14f
         setTextColor(Color.DKGRAY)
         setPadding(0, dp(10), 0, dp(5))
+    }
+
+    /** Small grey caption under a control, explaining why it is there. */
+    private fun noteText(value: String) = TextView(this).apply {
+        text = value
+        textSize = 13f
+        setTextColor(Color.GRAY)
+        setPadding(0, dp(6), 0, 0)
     }
 
     private fun helperText() = TextView(this).apply {

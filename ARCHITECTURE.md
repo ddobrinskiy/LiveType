@@ -353,6 +353,43 @@ plus gaps is 280dp, which leaves the status column 93dp on a 411dp screen. At
 72dp the widest row is 232dp and the left column keeps 141dp. The full
 arithmetic is in the `THUMB_BUTTON_DP` KDoc.
 
+### 3.13 A recording has a ceiling too, and it ends the phrase normally
+
+The failure mode is real and was hit in use: dictate, the text lands, send the
+message — and forget to tap stop. The keyboard then records indefinitely and
+OpenAI bills every committed second of it. §3.4's ceilings do not help; they
+guard an *idle* socket, and this one is busy.
+
+So `recordingCeilingRunnable` caps the recording itself, configurable from the
+settings screen at 1–20 minutes, **default 3**. Unlike the endpoint dropdown
+(§3.9) it is in release builds too: anyone can forget to tap stop.
+
+**It is a completion, not a cancellation.** Expiry routes through
+`finishDictation()` — the same method the stop square calls — so the buffer is
+committed, the transcript comes back through `onTranscriptCompleted`, the text
+is inserted, the usage is reported exactly once and the socket stays warm in
+`READY`. Nothing the user said is lost, and there is no second copy of the stop
+logic to drift. The only difference from a tap is the status line:
+`status_stopped_time_limit` names the limit that was reached, so an
+unexpectedly ended recording is not mysterious. It is deliberately not styled
+as an error — nothing failed.
+
+**The two ceilings never fight.** They cover disjoint halves of a session's
+life and hand over in one pair of lines each way: `beginRecording` drops
+`warmCeilingRunnable` and arms `recordingCeilingRunnable`, `completeSession`
+does the reverse. At most one is pending at any moment, so the idle ceiling
+cannot cut a recording short and the recording ceiling cannot close a socket
+the user is merely looking at.
+
+The limit is read at `beginRecording`, not at `openSession`, so a change in
+settings applies to the next phrase rather than the next reconnect; the value
+is captured into a field so the status line quotes the limit that actually
+applied. Cancellation follows the file's established rule — a named `Runnable`
+and an explicit `removeCallbacks` on **every** route out of `RECORDING`:
+`finishDictation`, `completeSession` (OpenAI can end a turn on its own),
+`cancelDictation` (cancel, keyboard switch, password field, grace and idle
+teardown, `onDestroy`) and `failSession`.
+
 ---
 
 ## 4. Decisions the user made explicitly

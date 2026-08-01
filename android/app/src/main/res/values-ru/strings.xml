@@ -13,6 +13,9 @@
     <string name="status_mic_in_use">Микрофон занят другим приложением</string>
     <string name="status_finishing">Завершаю фразу…</string>
     <string name="status_done">Готово</string>
+    <!-- Parenthesised on purpose: the plural below is nominative, so gluing it
+         into "через …" would give the wrong case for 1 minute. -->
+    <string name="status_stopped_time_limit">Запись остановлена — достигнут предел (%1$s)</string>
     <string name="status_no_speech">Речь не распознана</string>
     <string name="status_error">Ошибка</string>
     <string name="status_setup_needed">Нужна настройка</string>
@@ -61,6 +64,15 @@
     <string name="label_languages">Ожидаемые языки через запятую</string>
     <string name="label_context">Контекст</string>
     <string name="label_keywords">Термины, по одному на строку</string>
+    <!-- Recording ceiling; shown in every build, not just debug. -->
+    <string name="label_max_recording">Автоматическая остановка записи</string>
+    <string name="note_max_recording">OpenAI тарифицирует каждую записанную секунду, поэтому забытая включённой диктовка стоит денег. Фраза при этом завершается как обычно, и текст вставляется.</string>
+    <plurals name="recording_limit_minutes">
+        <item quantity="one">%1$d минута</item>
+        <item quantity="few">%1$d минуты</item>
+        <item quantity="many">%1$d минут</item>
+        <item quantity="other">%1$d минуты</item>
+    </plurals>
     <string name="checkbox_return_keyboard">После распознавания вернуться к предыдущей клавиатуре</string>
     <string name="action_save_settings">Сохранить настройки</string>
     <string name="privacy_note">Основной OpenAI API key вводить сюда не нужно. Он хранится только в Cloudflare Worker. LiveType не сохраняет историю диктовок.</string>

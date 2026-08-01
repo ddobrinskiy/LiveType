@@ -70,6 +70,13 @@ val debugKeywords: String = providers.fileContents(keywordsFile).asText.orNull
 val debugDeviceSecret = readDevVar("DEVICE_SECRET")
 val debugTokenEndpoint = "http://127.0.0.1:8787/token"
 
+// The deployed worker's URL is deliberately NOT in the repo: this is a public
+// repository and a worker URL is a live endpoint someone could hammer. It
+// lives in worker/.dev.vars (gitignored) beside the secrets, and is baked into
+// debug builds only. Absent file or key -> "", which leaves the prod option in
+// the settings dropdown disabled exactly as it was before deployment.
+val prodTokenEndpoint = readDevVar("PROD_TOKEN_ENDPOINT")
+
 android {
     namespace = "dev.dobrinskiy.livetype"
     compileSdk = 35
@@ -99,6 +106,7 @@ android {
             buildConfigField("String", "DEFAULT_TOKEN_ENDPOINT", javaStringLiteral(debugTokenEndpoint))
             buildConfigField("String", "DEFAULT_DEVICE_SECRET", javaStringLiteral(debugDeviceSecret))
             buildConfigField("String", "DEFAULT_KEYWORDS", javaStringLiteral(debugKeywords))
+            buildConfigField("String", "PROD_TOKEN_ENDPOINT", javaStringLiteral(prodTokenEndpoint))
         }
         getByName("release") {
             isMinifyEnabled = false
@@ -107,6 +115,7 @@ android {
             buildConfigField("String", "DEFAULT_TOKEN_ENDPOINT", "\"\"")
             buildConfigField("String", "DEFAULT_DEVICE_SECRET", "\"\"")
             buildConfigField("String", "DEFAULT_KEYWORDS", "\"\"")
+            buildConfigField("String", "PROD_TOKEN_ENDPOINT", "\"\"")
         }
     }
 

@@ -32,11 +32,13 @@ enum class EndpointMode {
 
     companion object {
         /**
-         * Set this once the worker is deployed. Left blank deliberately: a
-         * placeholder URL here would fail at runtime with a confusing network
-         * error instead of an honest "not ready yet".
+         * Read from `worker/.dev.vars` at build time, never committed: the
+         * repository is public and a worker URL is a live endpoint. Blank
+         * unless that file supplies `PROD_TOKEN_ENDPOINT`, and blank is what
+         * keeps the prod row in the settings dropdown disabled — the same
+         * honest "not ready yet" it showed before the worker existed.
          */
-        const val PROD_ENDPOINT = ""
+        val PROD_ENDPOINT: String get() = BuildConfig.PROD_TOKEN_ENDPOINT
 
         /** Only debug builds bake in a local endpoint; release leaves it blank. */
         val devEndpoint: String

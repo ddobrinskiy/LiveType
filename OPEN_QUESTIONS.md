@@ -14,42 +14,46 @@ Last updated: 2026-08-01.
 
 ## A. Needs your decision
 
-### A1 — Deploy the Worker to Cloudflare? *(raised 2026-08-01)*
-**Do you want the keyboard to work away from the Mac?**
+### A1 — Deploy the Worker to Cloudflare *(raised 2026-08-01; decided yes, now blocked on you)*
+**Two things in your Cloudflare account need you before the deploy can finish.**
 
-Right now `wrangler dev` runs the Worker locally, so dictation only works while
-the phone is tethered over USB with `adb reverse` running. `wrangler deploy`
-puts it on a public URL and cuts the cable. Free tier covers this easily — one
-request per dictation session against a 100k/day allowance.
+The decision is made and the code side is done. The attempt on 2026-08-01 got as
+far as the database and then hit two account-level gates, neither of which an
+assistant can or should clear:
 
-Blocks: A2. (Rate limiting was considered and deliberately deferred — see R8.)
+1. **Verify the account's email address** (`cf@dobrinskiy.me`). Until you do,
+   *every* write to a Worker script returns
+   `10034 — You need to verify your email address to use Workers`. This is what
+   stopped `wrangler secret put`, and it would equally stop `wrangler deploy`.
+   Cloudflare will have sent a verification mail; there is also a resend button
+   in the dashboard.
+   <https://developers.cloudflare.com/fundamentals/setup/account/verify-email-address/>
+2. **Let a `workers.dev` subdomain be created.** The account has none
+   (`GET /workers/subdomain` → `10007`), so `wrangler deploy` has nowhere to
+   publish and stops before uploading anything. Opening **Workers & Pages** in
+   the dashboard once creates it; wrangler also offers to register one
+   interactively. I deliberately did not pick a name — the subdomain is
+   permanent, account-wide and ends up in the URL your phone points at.
 
-### A2 — Provision a remote D1? *(raised 2026-08-01, partly resolved)*
-**Should billing history live in the cloud, or is the Mac enough?**
+Once both are done the rest is three commands in `worker/`, and everything they
+need is already in place:
 
-The **local** database is now provisioned and working — `GET /usage` returns
-200 and the meter is live. Nothing in your Cloudflare account was touched.
+```bash
+npx wrangler secret put OPENAI_API_KEY   # value from worker/.dev.vars
+npx wrangler secret put DEVICE_SECRET    # value from worker/.dev.vars
+npx wrangler deploy
+```
 
-Still open: the **remote** one (`wrangler d1 create livetype-usage`), which
-only makes sense together with A1. Note the two databases are unrelated —
-deploying will not carry local rows across, so the cloud meter starts at zero
-unless you deliberately export and import. See ARCHITECTURE.md §3.8.
+Then `EndpointMode.PROD_ENDPOINT` gets the resulting
+`https://livetype-token.<your-subdomain>.workers.dev/token`, which is what makes
+the prod row in the settings dropdown selectable. It is still `""` today, so the
+row is correctly greyed out.
 
-### A4 — Release signing *(raised 2026-08-01)*
-**Do you want to distribute release APKs, and where does the keystore live?**
+Free tier covers this easily — one request per dictation session against a
+100k/day allowance. Rate limiting was considered and deliberately deferred; see
+R8, and note the endpoint goes public the moment this clears.
 
-`assembleRelease` produces an *unsigned* APK, so it cannot be attached to a
-GitHub Release as-is. Needs a signing config fed from secrets, keystore kept out
-of the repo.
-
-### A7 — FUTO mic hand-off *(raised 2026-08-01)*
-**Wire FUTO's mic button to LiveType?**
-
-Investigated fully. ~5 lines in our own `input_method.xml` (a subtype with
-`imeSubtypeMode="voice"` plus `overridesImplicitlyEnabledSubtype="true"`), then
-flip FUTO's "Disable built-in voice input". No fork, no licence issue. Confirmed
-on-device that the voice slot is free. Not implemented — you asked whether it
-was possible, not for it to be done.
+### A2 — Provision a remote D1? *(raised 2026-08-01)* — **resolved, see R13**
 
 ### B1 — A quarter of the feature list is still unverified on the device
 23 of 44 rows in `QA.md` are user-confirmed and 11 more are closed as
@@ -74,21 +78,6 @@ closes it server-side at its own maximum age, `onClosed` surfaces that as a red
 honest rather than silent, but it is a failure banner where there used to be
 none. Not yet observed; the 5-minute idle ceiling only bounds *unused* sessions.
 
-### B9 — The dictation prompt reverted to English *(raised 2026-08-01)*
-The clean-install test reset it to the English default, because the device
-locale is English; it had been the Russian wording. Semantically the same
-instruction. `adb shell input text` cannot type Cyrillic, so if you want the
-Russian one back it needs a few taps by hand.
-
-### B8 — Cancel after the stop square is still billed *(raised 2026-08-01)*
-Cancel now abandons the phrase instead of tearing the session down, and while
-you are still recording it sends `input_audio_buffer.clear`, so the audio is
-never committed and never metered. Press it in the brief FINISHING window
-*after* tapping stop, though, and the commit has already gone out: OpenAI bills
-that buffer whatever we do next. The text is thrown away, but the usage is still
-reported, deliberately — the ledger records what OpenAI charged, not what the
-app kept. Say so if you would rather under-report those.
-
 ---
 
 ## Resolved
@@ -107,4 +96,9 @@ app kept. Say so if you would rather under-report those.
 | R10 | Test a clean install? | **Done.** `pm clear` run with the settings backed up first. Confirmed the debug build self-configures: endpoint, device secret and the 45-term dictionary all appeared unaided. Cost: the prompt reverted to the English default (see B9). | 2026-08-01 |
 | R11 | Were the committed APKs right to remove? | **Yes, settled by publishing.** `*.apk` stays gitignored; releases go through GitHub Releases, which also keeps the debug APK — which carries the device secret — out of a public repo. | 2026-08-01 |
 | R12 | Would CI work? | **Yes.** First run on the initial push: both jobs green in 2m11s. | 2026-08-01 |
+| R13 | Provision a remote D1 for billing history? | **Yes, done — both halves.** The local database was already live; the remote one now exists too: `livetype-usage`, id `850f00b2-d22f-49ff-bcdb-f0eca6f087da`, region WEUR, in the `cf@dobrinskiy.me` account. `0001_usage_events.sql` applied with `--remote`, and a `--remote` `sqlite_master` query confirms the table and its index. `worker/wrangler.jsonc` carries the real id, so bug B2 is closed. Two caveats: the remote database **starts empty** — your local spend history does not travel and would need a deliberate export/import (ARCHITECTURE.md §3.8) — and the binding has not yet served a real request, because the Worker itself is not deployed (A1). | 2026-08-01 |
+| R13 | Release signing — do you want to distribute APKs? | **Not for now.** Installing over adb is enough; no keystore, no signing config. Revisit only if the app is ever handed to someone else. | 2026-08-01 |
+| R14 | Wire FUTO's mic button to LiveType? | **No.** Fully investigated and cheap (~5 lines plus a FUTO toggle, no fork, voice slot confirmed free), but not wanted. The findings stay in ARCHITECTURE §5 if that changes. | 2026-08-01 |
+| R15 | Should a Cancel pressed after the stop square be billed? | **Yes, keep reporting it.** The commit has already reached OpenAI and is charged whatever the app does next, and the user wants the ledger to show real spend rather than what the app chose to keep. | 2026-08-01 |
+| R16 | Restore the Russian dictation prompt? | **No.** The English default says the same thing; not worth the manual typing. | 2026-08-01 |
 | R7 | Should Paste also copy to the system clipboard? | **No.** The last phrase lives in app memory for five minutes and is inserted from there. The system clipboard is readable by every app — a materially weaker privacy posture, and inconsistent with "LiveType keeps no dictation history". | 2026-08-01 |

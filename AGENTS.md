@@ -48,6 +48,22 @@ Screenshotting is not optional for UI work — layout regressions (overlapping
 views, a control pushed off-screen, an invisible tint) are invisible to the
 compiler and to the logs.
 
+**Put open questions in `OPEN_QUESTIONS.md`, not at the end of a reply.** A
+question asked in the last paragraph of a long answer gets missed, and then a
+decision quietly defaults to whatever the code already does. Anything needing
+the user's call — or any concern they should know about — goes in that file the
+moment it comes up, and the resolved section records what was decided and why.
+
+Related documents:
+
+| File | Purpose |
+|---|---|
+| `README.md` | For a stranger: what this is and how to run it |
+| `AGENTS.md` | This file: local setup, workflow, API gotchas |
+| `ARCHITECTURE.md` | Why the design is what it is; decisions and rationale |
+| `OPEN_QUESTIONS.md` | Awaiting a decision, plus known concerns |
+| `QA.md` | What is actually verified vs. what merely compiles |
+
 ## Prerequisites
 
 - Android phone connected via USB with USB debugging enabled

@@ -33,10 +33,9 @@ Last updated: 2026-08-01.
 | 3 | Tap an indicator → popup with its state | device | yes | **yes** | yes |
 | 4 | Recognised text no longer mirrored in the keyboard | device | yes | **yes** | yes |
 | 5 | Background `#E0EAEC`, dark strip removed | device | yes | **yes** | yes |
-| 6 | System `⌄` / globe glyphs forced dark | device | | | yes |
-| 7 | 2x2 thumb grid: keyboard / mic, backspace / Enter | device | | | yes (grid is now 3+2 — Paste joined the top row and the squares shrank 88dp → 72dp; keyboard / mic still sit directly above backspace / Enter) |
+| 6 | System `⌄` / globe glyphs forced dark | device | yes | **yes** | yes |
 | 8 | Icon-only buttons (no text labels) | device | yes | **yes** | yes (thumb grid only; Cancel and Settings are still text buttons, autosized by `fitLabel()`) |
-| 9 | Status line only says "Ready" once the socket is really open | device | | | yes |
+| 9 | Status line only says "Ready" once the socket is really open | device | yes | **yes** | yes |
 
 ## Dictation behaviour
 

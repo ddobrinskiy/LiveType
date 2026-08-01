@@ -84,6 +84,8 @@ Last updated: 2026-08-01.
 | 31 | Custom dictionary baked into debug builds (45 terms) | device — verified on a clean install, 45 terms one per line | | |
 | 32 | Debug build self-configures endpoint + secret | device — confirmed after `pm clear` | | |
 | 33 | `data/keywords.txt.age`, age round-trip | partial — encrypt/decrypt verified byte-for-byte; plaintext confirmed untrackable | — | |
+| 34 | Endpoint dropdown in debug: prod (disabled) / dev / custom | build only — release absence proven in the dex; the greyed prod row and the locked field not seen on device | | |
+| 35 | Money rounded to three decimals, tiny amounts as `<$0.001` | partial — checked across realistic amounts in en_US and ru_RU | | |
 
 ---
 

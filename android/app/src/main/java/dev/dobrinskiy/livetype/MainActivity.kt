@@ -73,8 +73,30 @@ class MainActivity : Activity() {
      * The last URL typed while on [EndpointMode.CUSTOM]. Switching to a derived
      * mode overwrites the field, so the typed value is parked here and offered
      * back on the way in instead of being silently destroyed.
+     *
+     * Parked in `SharedPreferences` too, not just here: now that picking `DEV`
+     * writes the dev URL over the stored endpoint straight away, memory alone
+     * would lose the hand-typed URL the moment the Activity went away.
      */
     private var customEndpoint: String = ""
+
+    /**
+     * Raised while the spinner is being pointed at the stored mode, and lowered
+     * by the callback that reports it.
+     *
+     * `Spinner` does not report its selection when it is set — it reports it at
+     * the next layout pass, long after [onCreate] has returned, and by then a
+     * programmatic selection is indistinguishable from a tap. Persisting that
+     * callback would rewrite the endpoint every time the screen opened, which
+     * is precisely the bug this screen already had in a different form.
+     *
+     * The flag alone is not the test: the callback also has to name the mode
+     * that is already on screen. A tap never can, because re-picking the
+     * selected row changes no selection and fires no callback. Requiring both
+     * means a lost initial callback cannot swallow the user's first real
+     * choice.
+     */
+    private var restoringEndpointMode: Boolean = false
 
     private lateinit var billingStatus: TextView
     private lateinit var billingPrice: TextView
@@ -156,6 +178,7 @@ class MainActivity : Activity() {
         if (EndpointMode.isSelectable) {
             content.addView(label(getString(R.string.label_endpoint_mode)))
             content.addView(buildEndpointModeSpinner())
+            content.addView(noteText(getString(R.string.note_endpoint_mode)))
         }
         content.addView(label(getString(R.string.label_worker_endpoint)))
         content.addView(endpointInput)
@@ -235,14 +258,26 @@ class MainActivity : Activity() {
                     id: Long,
                 ) {
                     val mode = modeAdapter.getItem(position) ?: return
-                    // The adapter already refuses to enable an unavailable row;
-                    // this catches the programmatic path, including the initial
-                    // selection landing on PROD before the stored mode is applied.
+                    // The adapter refuses to enable an unavailable row, but
+                    // isEnabled only governs taps: a selection set in code —
+                    // or restored by the framework — walks straight past it.
+                    // Bounce back to the mode already in force.
+                    //
+                    // This check used to be the only thing standing between the
+                    // spinner's own initial callback and the endpoint field,
+                    // and it worked purely because PROD sat at position 0 and
+                    // was unavailable. PROD is deployed now, so it stops
+                    // nothing; see restoringEndpointMode for the real guard.
                     if (!mode.isAvailable) {
                         setSelection(modeAdapter.getPosition(endpointMode))
                         return
                     }
-                    selectEndpointMode(mode)
+                    // A callback that arrives during the restore and names the
+                    // mode already on screen is the spinner echoing
+                    // populateSettings, not a choice. Nothing is written for it.
+                    val restoring = restoringEndpointMode && mode == endpointMode
+                    restoringEndpointMode = false
+                    selectEndpointMode(mode, persist = !restoring)
                 }
 
                 override fun onNothingSelected(parent: AdapterView<*>?) = Unit
@@ -295,8 +330,17 @@ class MainActivity : Activity() {
      * field — the URL follows from the choice, so it is filled in and locked
      * rather than typed. CUSTOM hands the field back, restoring the parked URL
      * if there is one and otherwise keeping whatever is on screen.
+     *
+     * With [persist] the choice is written to `SharedPreferences` there and
+     * then, endpoint included, so leaving the screen without pressing Save no
+     * longer discards it. What is stored is exactly what the field ends up
+     * showing — including, on CUSTOM, a URL carried over from the mode being
+     * left, because that is the URL the user is looking at and the one they are
+     * about to edit. Keystrokes after that are a draft and stay one: they reach
+     * storage through Save, which validates them, or through the parking below
+     * when the user moves to another mode.
      */
-    private fun selectEndpointMode(mode: EndpointMode) {
+    private fun selectEndpointMode(mode: EndpointMode, persist: Boolean) {
         if (endpointMode == EndpointMode.CUSTOM && mode != EndpointMode.CUSTOM) {
             customEndpoint = endpointInput.text.toString().trim()
         }
@@ -309,6 +353,14 @@ class MainActivity : Activity() {
         endpointInput.isEnabled = derived == null
         // The old complaint belonged to the old URL.
         endpointInput.error = null
+        if (persist) {
+            AppSettings.saveEndpointSelection(
+                context = this,
+                mode = mode,
+                endpoint = derived ?: endpointInput.text.toString().trim(),
+                customEndpoint = customEndpoint,
+            )
+        }
     }
 
     private fun populateSettings() {
@@ -335,12 +387,24 @@ class MainActivity : Activity() {
             // from CUSTOM as "park what is in the field", and at this point the
             // field holds the stored endpoint, not something the user typed.
             endpointMode = settings.endpointMode
-            customEndpoint =
+            // The fallback covers installs that predate the stored custom URL:
+            // back then the only record of it was the endpoint itself, and only
+            // while CUSTOM was the stored mode.
+            customEndpoint = settings.customEndpoint.ifBlank {
                 if (settings.endpointMode == EndpointMode.CUSTOM) settings.tokenEndpoint else ""
+            }
+            restoringEndpointMode = true
             spinner.setSelection(EndpointMode.entries.indexOf(settings.endpointMode))
-            // The stored endpoint can disagree with the stored mode (a mode
-            // saved before the baked URL changed, say). The mode wins.
-            selectEndpointMode(settings.endpointMode)
+            // The stored endpoint can still disagree with the stored mode — a
+            // mode stored before the baked URL changed, say, or before the two
+            // were written together. The mode wins, and because the screen now
+            // shows a URL that is not the stored one, the reconciliation is
+            // written back rather than left for a Save that may never come.
+            val derived = EndpointMode.endpointFor(settings.endpointMode)
+            selectEndpointMode(
+                settings.endpointMode,
+                persist = derived != null && derived != settings.tokenEndpoint,
+            )
         }
     }
 
@@ -371,6 +435,12 @@ class MainActivity : Activity() {
             return
         }
 
+        // Committed before the write, so the blob below carries the same three
+        // endpoint keys saveEndpointSelection would have written. The two paths
+        // must not be able to leave a different picture behind.
+        if (endpointMode == EndpointMode.CUSTOM) {
+            customEndpoint = endpoint
+        }
         AppSettings.save(
             this,
             LiveTypeSettings(
@@ -385,12 +455,10 @@ class MainActivity : Activity() {
                     .toList(),
                 returnToPreviousKeyboard = returnCheck.isChecked,
                 endpointMode = endpointMode,
+                customEndpoint = customEndpoint,
                 maxRecordingMinutes = maxRecordingMinutes,
             ),
         )
-        if (endpointMode == EndpointMode.CUSTOM) {
-            customEndpoint = endpoint
-        }
         Toast.makeText(this, R.string.toast_settings_saved, Toast.LENGTH_SHORT).show()
         // The endpoint or the secret may have just been fixed; the section
         // below is showing the old verdict until it is asked again.

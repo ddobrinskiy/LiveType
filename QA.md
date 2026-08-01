@@ -65,7 +65,7 @@ Last updated: 2026-08-01.
 | # | Feature | Me | You | Confirmed |
 |---|---|---|---|---|
 | 23 | Localisation ru/en with English fallback | device — UI came up English on an English device | | |
-| 24 | Debug build bakes in endpoint + `DEVICE_SECRET` | partial — verified in generated `BuildConfig`, **not** tested from a clean install | | |
+| 24 | Debug build bakes in endpoint + `DEVICE_SECRET` | device — confirmed on a clean install (see #32) | | |
 | 25 | Release build contains no secret and no dev endpoint | partial — grepped both APKs, debug as positive control | — | |
 | 26 | Release cleartext HTTP forbidden; debug allows loopback only | partial — aapt2 on both APKs | — | |
 | 27 | `lintVitalRelease` passes, release APK builds | partial — `assembleRelease` succeeds | — | |
@@ -87,11 +87,11 @@ Last updated: 2026-08-01.
 
 Things below are **not** verified and should not be assumed working.
 
-1. **A clean install has never been tested.** #24 says the debug build bakes the
-   endpoint and secret in, but the phone already had saved settings, so the
-   defaults path never actually ran. Testing it needs
-   `adb shell pm clear dev.dobrinskiy.livetype`, which also wipes the user's
-   prompt and keywords.
+1. **The dictation prompt is now English.** The clean install reset it to the
+   English default because the device locale is English; it used to be the
+   Russian wording. Semantically the same instruction, but it was not the
+   user's earlier setting. `adb shell input text` cannot type Cyrillic, so
+   restoring it needs a few taps by hand.
 2. **The silenced-mic UI (#17) has never been seen.** The detection itself is
    confirmed working (#16 — the user saw the message), but the red text and
    warning icon landed afterwards and nobody has looked at that state since.

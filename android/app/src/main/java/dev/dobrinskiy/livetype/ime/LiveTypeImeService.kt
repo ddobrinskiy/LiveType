@@ -306,7 +306,7 @@ class LiveTypeImeService : InputMethodService() {
         // directly under keyboard and mic — the thumb finds them where it
         // always did. See THUMB_BUTTON_DP for the width arithmetic that forced
         // the keys down to 72dp wide, and THUMB_BUTTON_HEIGHT_DP for the height
-        // arithmetic that made them 126dp tall.
+        // arithmetic that made them 110dp tall.
         val rightColumn = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             layoutParams = LinearLayout.LayoutParams(
@@ -1464,7 +1464,7 @@ class LiveTypeImeService : InputMethodService() {
         private const val THUMB_BUTTON_DP = 72
 
         /**
-         * The same targets, 126dp **tall** — the keys are deliberately not
+         * The same targets, 110dp **tall** — the keys are deliberately not
          * square.
          *
          * The keyboard was too short and had to grow, but width is spoken for:
@@ -1483,18 +1483,19 @@ class LiveTypeImeService : InputMethodService() {
          * | | 88dp keys | 96dp keys | **now** |
          * |---|---|---|---|
          * | content padding, top ([CONTENT_PADDING_V_DP]) | 12 | 14 | 14 |
-         * | top row | 72 | 96 | **126** |
+         * | top row | 72 | 96 | **110** |
          * | row gap ([THUMB_ROW_GAP_DP]) | 8 | 10 | **13** |
-         * | bottom row | 72 | 96 | **126** |
+         * | bottom row | 72 | 96 | **110** |
          * | content padding, bottom | 12 | 14 | 14 |
-         * | **content total** | **176dp** | **230dp** | **293dp** (+63 = 1cm) |
+         * | **content total** | **176dp** | **230dp** | **261dp** |
          * | thumb-reach lift ([BUTTON_BLOCK_LIFT_DP]) | 0 | 0 | **63** |
-         * | **block total** | **176dp** | **230dp** | **356dp** (+55%) |
+         * | **block total** | **176dp** | **230dp** | **324dp** (+41%) |
          *
-         * Of the 63dp of new *content*, 60 went to the keys (30 per row) and 3
-         * to the row gap, so the two rows do not read as one slab as they grow.
-         * The content padding is untouched: it is edge breathing room, and the
-         * ask was thumb reach, which is what the key faces and the lift buy.
+         * The keys briefly went to 126dp; the user found the whole block half a
+         * centimetre too tall and asked for that back from the app, not from
+         * the lift. So 32dp (0.5cm) came off the key faces, 16 per row, leaving
+         * 110. The lift is untouched at 63dp — it is what buys thumb reach, and
+         * it was the part that worked.
          *
          * `systemInsetPadding()` sits below all of this and is untouched — it
          * reserves the gesture bar, not keyboard.
@@ -1502,19 +1503,19 @@ class LiveTypeImeService : InputMethodService() {
          * Consequences:
          * - The glyph does not grow. [THUMB_ICON_PADDING_DP] is 20 on all four
          *   sides, so FIT_CENTER still resolves a square drawable inside
-         *   72 − 40 = 32dp of width; the extra 54dp of height is padding.
-         * - 72×126 is a 1:1.75 portrait key. That is deliberate: the thumb
+         *   72 − 40 = 32dp of width; the extra 38dp of height is padding.
+         * - 72×110 is a 1:1.53 portrait key. That is deliberate: the thumb
          *   swings up a shallow arc, so vertical slack forgives the aim error
          *   this grid actually suffers, and the extra travel between rows costs
          *   nothing because the row gap grew with it.
-         * - The left column gets 265dp of usable height against 202dp before,
+         * - The left column gets 233dp of usable height against 202dp before,
          *   all of it to the weight-1 status block: the four-line Russian
          *   `status_mic_in_use` clears the grid with room over, and the two
          *   indicators and the 52dp action row are unchanged.
          * - The 64dp accessibility floor is measured on the smaller dimension,
          *   which is still the 72dp width.
          */
-        private const val THUMB_BUTTON_HEIGHT_DP = 126
+        private const val THUMB_BUTTON_HEIGHT_DP = 110
 
         /** Gap **between** two keys in a row; a width cost, so it stays 8dp. */
         private const val THUMB_GAP_DP = 8

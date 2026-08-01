@@ -1,4 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+    Release policy: HTTPS only.
+
+    The token request carries DEVICE_SECRET in the X-Device-Secret header, so
+    cleartext would expose it on the wire. Debug builds override this file from
+    src/debug/res/xml/network_security_config.xml to allow loopback only, which
+    is what `wrangler dev` + `adb reverse` needs.
+-->
 <network-security-config>
-    <base-config cleartextTrafficPermitted="true" />
+    <base-config cleartextTrafficPermitted="false" />
 </network-security-config>

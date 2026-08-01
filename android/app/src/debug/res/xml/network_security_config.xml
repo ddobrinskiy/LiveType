@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Debug-only override of src/main/res/xml/network_security_config.xml.
+
+    It exists solely so the debug APK can reach a local `wrangler dev` over
+    `adb reverse tcp:8787 tcp:8787`. Cleartext stays forbidden everywhere except
+    the loopback addresses below, and this file is not part of the release APK,
+    so a release build is HTTPS-only no matter what the user types into
+    settings.
+
+    10.0.2.2 is the host machine as seen from the Android emulator.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false" />
+
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">localhost</domain>
+        <domain includeSubdomains="false">127.0.0.1</domain>
+        <domain includeSubdomains="false">10.0.2.2</domain>
+    </domain-config>
+</network-security-config>

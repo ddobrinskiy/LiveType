@@ -1,7 +1,23 @@
 package dev.dobrinskiy.livetype.config
 
 import android.content.Context
+import dev.dobrinskiy.livetype.BuildConfig
 import dev.dobrinskiy.livetype.R
+
+/**
+ * Whether [endpoint] may be used for the token request.
+ *
+ * Release builds require HTTPS: the request carries `DEVICE_SECRET` in the
+ * `X-Device-Secret` header, and cleartext would put it on the wire. Debug
+ * builds additionally accept `http://` so the app can talk to a local
+ * `wrangler dev` through `adb reverse` (`http://127.0.0.1:8787/token`).
+ *
+ * The network security config enforces the same split at the platform level —
+ * see `res/xml/network_security_config.xml` and its `src/debug` override, which
+ * permits cleartext for loopback addresses only.
+ */
+fun isAllowedTokenEndpoint(endpoint: String): Boolean =
+    endpoint.startsWith("https://") || (BuildConfig.DEBUG && endpoint.startsWith("http://"))
 
 data class LiveTypeSettings(
     val tokenEndpoint: String,
@@ -12,7 +28,7 @@ data class LiveTypeSettings(
     val returnToPreviousKeyboard: Boolean,
 ) {
     val isConfigured: Boolean
-        get() = (tokenEndpoint.startsWith("https://") || tokenEndpoint.startsWith("http://")) && deviceSecret.isNotBlank()
+        get() = isAllowedTokenEndpoint(tokenEndpoint) && deviceSecret.isNotBlank()
 }
 
 object AppSettings {

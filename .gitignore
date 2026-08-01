@@ -1,5 +1,6 @@
 # Build output
 .gradle/
+.kotlin/
 **/build/
 worker/node_modules/
 worker/.wrangler/
@@ -12,6 +13,9 @@ local.properties
 
 # Prebuilt APKs are distributed via GitHub Releases, not tracked in git.
 *.apk
+
+# Agent worktrees are created inside the repo; they are never part of it.
+.claude/worktrees/
 
 # IDE / OS
 .idea/

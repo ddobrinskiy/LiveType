@@ -24,15 +24,16 @@ request per dictation session against a 100k/day allowance.
 
 Blocks: A2, and effectively A5.
 
-### A2 — Provision a remote D1? *(raised 2026-08-01)*
-**Should billing history live in the cloud or only on this Mac?**
+### A2 — Provision a remote D1? *(raised 2026-08-01, partly resolved)*
+**Should billing history live in the cloud, or is the Mac enough?**
 
-`GET /usage` currently returns 500 because no database exists. Two levels:
-- *Local only* — one command, no account touched, history lives on the Mac.
-- *Remote* — `wrangler d1 create livetype-usage`, needed for history to follow
-  the phone. Only makes sense together with A1.
+The **local** database is now provisioned and working — `GET /usage` returns
+200 and the meter is live. Nothing in your Cloudflare account was touched.
 
-I have not run either; the local one I can do any time you say.
+Still open: the **remote** one (`wrangler d1 create livetype-usage`), which
+only makes sense together with A1. Note the two databases are unrelated —
+deploying will not carry local rows across, so the cloud meter starts at zero
+unless you deliberately export and import. See ARCHITECTURE.md §3.8.
 
 ### A3 — Publish the repository? *(raised 2026-08-01)*
 **Push to GitHub, public?**

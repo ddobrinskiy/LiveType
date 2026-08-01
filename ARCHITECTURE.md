@@ -206,6 +206,40 @@ reconciliation row.
 D1 rather than KV: KV's 1 write/sec/key limit and read-modify-write races make
 it unfit for a counter.
 
+Cost is stored in **nano**-USD, not micro. One second of `gpt-live-transcribe`
+is 283 333 nanos; rounding that to whole micro-dollars would lose about 20% on
+short phrases. Every row also freezes the unit price in force at the time of
+the session, so a later price change never re-prices history.
+
+#### Where the usage data actually lives
+
+`wrangler dev` does **not** talk to Cloudflare. It emulates D1 as a local
+SQLite file:
+
+```
+worker/.wrangler/state/v3/d1/miniflare-D1DatabaseObject/<hash>.sqlite
+```
+
+`.wrangler/` is gitignored, so usage never enters the repository. Two
+consequences that are easy to get wrong:
+
+**The local and the deployed databases are unrelated.** Deploying does not
+migrate local rows anywhere; spend accumulated during local development stays
+on that machine and the cloud database starts empty. Moving it across takes a
+deliberate export/import. Equally, deleting `.wrangler/` — a `git clean -x`, a
+tidy-up — destroys the local history silently.
+
+**Ordinary updates do not touch the data.** `wrangler deploy` publishes worker
+code only; the database is a separate resource it never recreates. Migrations
+are guarded twice over: wrangler records which ones have run and skips them,
+and `0001_usage_events.sql` is written idempotently (`CREATE TABLE IF NOT
+EXISTS`, `CREATE INDEX IF NOT EXISTS`), so re-applying it is harmless even if
+that bookkeeping is lost.
+
+Data can only be lost through a deliberate act: running `wrangler d1 execute`
+with destructive SQL, deleting and recreating the database, or adding a
+migration containing `DROP`/`ALTER`. Keep new migrations additive.
+
 ### 3.9 Debug and release builds differ on purpose
 
 | | debug | release |

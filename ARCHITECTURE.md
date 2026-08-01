@@ -260,6 +260,46 @@ parent, where Android draws but does not dispatch touches. The optical
 alignment now comes from `content` shortening its left padding by the glyph's
 inset, so every view stays inside its parent.
 
+#### A keyboard cannot show a `Toast`
+
+That geometry fix did not bring the tap feedback back, because the target was
+only half the problem. The other half is that **a `Toast` is invisible while
+this keyboard is up**, and always was — the growing keyboard is what finally
+made it total:
+
+| | layer |
+|---|---|
+| `TYPE_TOAST` | **7** |
+| `TYPE_APPLICATION_OVERLAY` | 11 |
+| `TYPE_INPUT_METHOD` | **13** |
+
+`WindowManagerPolicy.getWindowLayerFromTypeLw` puts the toast six layers *below*
+the IME, so the keyboard is drawn over it. And a text toast is pinned 48dp
+(`R.dimen.toast_y_offset`) above the bottom of the screen — about 300dp inside a
+keyboard that is now ~364dp tall. It cannot be moved out of the way either:
+`Toast.setGravity` is a documented no-op for text toasts on apps targeting API
+30+, and this one targets 35.
+
+The tap feedback is therefore a `PopupWindow` anchored to the indicator. A
+popup shown from a view inside the IME is a **sub-window** of the keyboard's own
+window, so it is layered against its parent instead of against the IME as a
+whole and is drawn on top of it — the same mechanism a key-preview uses. It is
+`isTouchable = false` and `isFocusable = false`, so it can neither eat the next
+tap nor take focus from the editor being dictated into, and it is dismissed by
+`onWindowHidden`, `onDestroy` and the next `onCreateInputView` so it can never
+outlive the window it is parented to. The `Toast` is kept as the fallback for
+the one case the popup cannot serve — no window token, the view detached between
+the touch and the callback — where the keyboard is on its way out anyway and a
+toast is exactly what *is* visible.
+
+Two logs make the next such regression loud rather than silent, because neither
+failure mode is visible to the compiler, to lint or to a screenshot:
+
+- an `Log.i` on `ACTION_DOWN` at the indicator itself, so "the tap never
+  arrived" can be told from "the tap arrived and produced nothing";
+- a one-shot check on first layout that walks every ancestor and logs `Log.w`
+  if the touch box measured to nothing or landed outside one of them.
+
 ### 3.6 A silenced microphone is a state, not a failure
 
 Since Android 10 only one client gets live microphone audio. When a screen

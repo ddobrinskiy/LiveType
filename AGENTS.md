@@ -46,33 +46,35 @@ OPENAI_API_KEY=sk-project-...
 DEVICE_SECRET=<random 32+ hex chars>
 ```
 
-### 2. Code modifications for HTTP (dev only)
+### 2. Cleartext HTTP is already handled — nothing to patch
 
-The app enforces HTTPS in production. For local testing, these changes are applied:
+Cleartext to `http://127.0.0.1:8787/token` works out of the box in **debug**
+builds and is impossible in **release** builds. Do not "temporarily" widen this;
+the split is permanent and needs no local edits.
 
-**`res/xml/network_security_config.xml`** — allows cleartext HTTP:
-```xml
-<network-security-config>
-    <base-config cleartextTrafficPermitted="true" />
-</network-security-config>
+| | debug | release |
+|---|---|---|
+| `res/xml/network_security_config.xml` | `src/debug` override: cleartext for `localhost`, `127.0.0.1`, `10.0.2.2` only | `src/main`: `cleartextTrafficPermitted="false"` |
+| `isAllowedTokenEndpoint()` (`config/AppSettings.kt`) | `https://` or `http://` | `https://` only |
+
+Both `LiveTypeSettings.isConfigured` and `MainActivity.saveSettings()` go
+through `isAllowedTokenEndpoint()`, which is gated on `BuildConfig.DEBUG`
+(hence `buildFeatures { buildConfig = true }` in `app/build.gradle.kts`).
+
+The manifest keeps `android:usesCleartextTraffic="false"`, but on API 24+ the
+network security config wins, so the debug loopback exception applies. minSdk is
+28.
+
+To confirm the split after touching either file:
+
+```bash
+AAPT2=$ANDROID_HOME/build-tools/35.0.0/aapt2
+$AAPT2 dump xmltree --file res/xml/network_security_config.xml \
+  app/build/outputs/apk/debug/app-debug.apk     # base false + loopback domain-config
+# release paths are shortened by optimizeReleaseResources; grep the res/*.xml
+# entries of app/build/outputs/apk/release/app-release-unsigned.apk instead —
+# the network-security-config there must contain base-config only.
 ```
-
-**`AndroidManifest.xml`** — references the config:
-```xml
-android:networkSecurityConfig="@xml/network_security_config"
-```
-
-**`AppSettings.kt:14`** — `isConfigured` accepts `http://`:
-```kotlin
-(startsWith("https://") || startsWith("http://"))
-```
-
-**`MainActivity.kt:153`** — save button accepts `http://`:
-```kotlin
-if (!endpoint.startsWith("https://") && !endpoint.startsWith("http://"))
-```
-
-**Revert before production release.**
 
 ### 3. Start the worker
 
@@ -112,6 +114,16 @@ On the phone, in LiveType settings:
 - Open any text field, select LiveType as keyboard
 - Press the microphone button
 - Watch logs: `adb logcat --pid=$(adb shell pidof -s dev.dobrinskiy.livetype) | grep -E "(LiveTypeIme|LiveTypeToken)"`
+
+## Tests and CI
+
+```bash
+cd worker && npx vitest run    # the only automated test suite
+cd android && ./gradlew assembleDebug
+```
+
+`.github/workflows/ci.yml` runs exactly those two on push to `main` and on every
+pull request. Nothing in CI needs secrets, and CI never touches a device.
 
 ## Logging
 

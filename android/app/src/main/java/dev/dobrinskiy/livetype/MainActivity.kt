@@ -23,6 +23,7 @@ import android.widget.Toast
 import dev.dobrinskiy.livetype.config.AppSettings
 import dev.dobrinskiy.livetype.config.FeatureFlags
 import dev.dobrinskiy.livetype.config.LiveTypeSettings
+import dev.dobrinskiy.livetype.config.isAllowedTokenEndpoint
 
 @SuppressLint("SetTextI18n")
 class MainActivity : Activity() {
@@ -153,7 +154,9 @@ class MainActivity : Activity() {
             .map(String::trim)
             .filter(String::isNotBlank)
 
-        if (!endpoint.startsWith("https://") && !endpoint.startsWith("http://")) {
+        // Release builds reject http:// outright; debug builds keep it for the
+        // local wrangler dev loop. See isAllowedTokenEndpoint.
+        if (!isAllowedTokenEndpoint(endpoint)) {
             endpointInput.error = getString(R.string.error_need_url)
             return
         }

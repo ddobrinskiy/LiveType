@@ -41,7 +41,7 @@ Last updated: 2026-08-01.
 
 | # | Feature | Me | You | Confirmed | In main |
 |---|---|---|---|---|---|
-| 10 | Connection prewarms when the keyboard opens | device | | | yes |
+| 10 | Connection prewarms when the keyboard opens | device | yes | **yes** | yes |
 | 11 | Enter inserts a newline, never sends the message | partial | yes | **yes** | yes |
 | 12 | Enter stays active *during* dictation without duplicating text | build only | yes | **yes** | yes |
 | 13 | Backspace: hold to repeat, accelerating to whole words | build only | yes | **yes** | yes |
@@ -52,9 +52,8 @@ Last updated: 2026-08-01.
 | # | Feature | Me | You | Confirmed | In main |
 |---|---|---|---|---|---|
 | 15 | Silenced-mic detection (screen recorder, calls) | build only | yes | yes | yes |
-| 16 | Silenced-mic shown red + warning icon, auto-recovers | build only | | | yes |
+| 16 | Silenced-mic shown red + warning icon, auto-recovers | build only | yes | **yes** | yes |
 | 17 | Prewarm debounce + 8s grace + 5min ceiling | device — measured 6 open/close cycles → **0** extra token requests, 6 reuses | yes | **yes** — stays alive across field changes, settings, typing; closes on IME switch, which is by design | yes |
-| 18 | Fix: mic tap mid-connect + focus loss no longer records with the keyboard hidden | build only | | | yes |
 | 19 | Session survives a completed phrase: back to `READY`, indicators stay green, ceiling re-armed per phrase | device | yes | **yes** | yes |
 | 45 | Cancel abandons the phrase without closing the session: `input_audio_buffer.clear`, composing text and partial transcript dropped, socket kept, back to `READY` with both indicators green | build only — `assembleDebug` (with `compileDebugKotlin` executing) and `lintDebug` clean; never tapped on a phone, and the late-transcript guards (abandoned `item_id`, `abandonedCompletions`) have not been observed firing against the live API | | | yes |
 

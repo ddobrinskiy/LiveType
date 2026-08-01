@@ -27,7 +27,26 @@ cd android && ANDROID_HOME=$HOME/Library/Android/sdk ./gradlew assembleDebug \
 ```
 
 Verify the APK actually recompiled — a sub-second `BUILD SUCCESSFUL` usually
-means `compileDebugKotlin` was `UP-TO-DATE` and nothing changed.
+means `compileDebugKotlin` was `UP-TO-DATE` and nothing changed. Compare the
+APK's mtime against the clock rather than trusting the build log.
+
+**The same applies after every merge.** Merging a branch — especially work done
+by a parallel agent in a worktree — is a change to the app like any other, and
+until the merged APK is on the phone nothing has actually been verified. A
+green `assembleDebug` only proves it compiles; parallel agents can each build
+cleanly and still combine into something broken at runtime. So after every
+merge: build, install, and look at the result on the device.
+
+```bash
+# after `git merge`
+cd android && ANDROID_HOME=$HOME/Library/Android/sdk ./gradlew assembleDebug \
+  && adb install -r app/build/outputs/apk/debug/app-debug.apk
+adb exec-out screencap -p > /tmp/shot.png     # then actually look at it
+```
+
+Screenshotting is not optional for UI work — layout regressions (overlapping
+views, a control pushed off-screen, an invisible tint) are invisible to the
+compiler and to the logs.
 
 ## Prerequisites
 

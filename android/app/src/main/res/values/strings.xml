@@ -24,6 +24,13 @@
     <string name="status_mic_in_use">Another app is using the microphone — dictation is paused</string>
     <string name="status_finishing">Finishing the phrase…</string>
     <string name="status_done">Done</string>
+    <!--
+        Shown instead of status_done when the recording ceiling stopped the
+        phrase rather than the user. Deliberately not an error: the audio was
+        committed and the text inserted exactly as a tap on stop would have
+        done. %1$s is the configured limit, e.g. "3 minutes".
+    -->
+    <string name="status_stopped_time_limit">Stopped after %1$s — recording limit reached</string>
     <string name="status_no_speech">No speech recognised</string>
     <string name="status_error">Error</string>
     <string name="status_setup_needed">Setup required</string>
@@ -85,6 +92,17 @@
     <string name="label_languages">Expected languages, comma separated</string>
     <string name="label_context">Context</string>
     <string name="label_keywords">Terms, one per line</string>
+    <!--
+        Recording ceiling. Shown in every build, not just debug: forgetting to
+        tap stop costs money on any phone.
+    -->
+    <string name="label_max_recording">Stop recording automatically after</string>
+    <string name="note_max_recording">OpenAI charges for every second recorded, so a dictation left running costs money. The phrase is still finished normally and the text inserted.</string>
+    <!-- Both the dropdown rows and the %1$s of status_stopped_time_limit. -->
+    <plurals name="recording_limit_minutes">
+        <item quantity="one">%1$d minute</item>
+        <item quantity="other">%1$d minutes</item>
+    </plurals>
     <string name="hint_endpoint" translatable="false">https://your-worker.workers.dev/token</string>
     <string name="hint_device_secret" translatable="false">DEVICE_SECRET</string>
     <string name="checkbox_return_keyboard">Return to the previous keyboard after dictation</string>

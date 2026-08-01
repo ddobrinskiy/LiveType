@@ -116,6 +116,15 @@ closes it server-side at its own maximum age, `onClosed` surfaces that as a red
 honest rather than silent, but it is a failure banner where there used to be
 none. Not yet observed; the 5-minute idle ceiling only bounds *unused* sessions.
 
+### B8 — Cancel after the stop square is still billed *(raised 2026-08-01)*
+Cancel now abandons the phrase instead of tearing the session down, and while
+you are still recording it sends `input_audio_buffer.clear`, so the audio is
+never committed and never metered. Press it in the brief FINISHING window
+*after* tapping stop, though, and the commit has already gone out: OpenAI bills
+that buffer whatever we do next. The text is thrown away, but the usage is still
+reported, deliberately — the ledger records what OpenAI charged, not what the
+app kept. Say so if you would rather under-report those.
+
 ---
 
 ## Resolved

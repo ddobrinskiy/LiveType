@@ -17,6 +17,7 @@
          into "через …" would give the wrong case for 1 minute. -->
     <string name="status_stopped_time_limit">⚠️ Запись остановлена — достигнут предел (%1$s)</string>
     <string name="status_no_speech">Речь не распознана</string>
+    <string name="status_cancelled">Отменено — готово к диктовке</string>
     <string name="status_error">Ошибка</string>
     <string name="status_setup_needed">Нужна настройка</string>
 

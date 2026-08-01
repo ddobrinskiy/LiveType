@@ -240,6 +240,35 @@ untranslated key blocks the release build entirely.
 
 **No user-facing literal belongs in Kotlin.**
 
+### 3.12 The Paste buffer is memory-only and expires in five minutes
+
+Dictating while no editor has focus used to lose the transcript outright:
+`currentInputConnection` is null or has no target, `commitText` silently does
+nothing, and the user has to say it all again. `RecentPhrase` keeps the last
+recognised phrase so the Paste thumb button can put it somewhere afterwards.
+
+**It is a single string in a field — never `SharedPreferences`, never a file,
+never a database, and deliberately not the system clipboard.** `README.md`
+promises "LiveType keeps no dictation history", and the clipboard is globally
+readable and mirrored into the clipboard-history UI, so using it as a fallback
+would be a materially different privacy posture. That option is left open for
+the user to decide, not taken unilaterally.
+
+Expiry drops the **reference** on a `postDelayed` callback rather than gating a
+retained string behind a timestamp check, so after five minutes the transcript
+is genuinely unreachable. The timer is removed by `remember`, `clear` and
+`release`, and `onDestroy` calls `release()` explicitly before the blanket
+`removeCallbacksAndMessages(null)`.
+
+Pasting follows the composing-region protocol of §3.7 — `finishComposingText()`
+then `committedChars` while RECORDING / CONNECTING / FINISHING — and does not
+consume the phrase, because the first target may have been the wrong field.
+
+Fitting a third square into the thumb row cost the grid its 88dp: three of them
+plus gaps is 280dp, which leaves the status column 93dp on a 411dp screen. At
+72dp the widest row is 232dp and the left column keeps 141dp. The full
+arithmetic is in the `THUMB_BUTTON_DP` KDoc.
+
 ---
 
 ## 4. Decisions the user made explicitly

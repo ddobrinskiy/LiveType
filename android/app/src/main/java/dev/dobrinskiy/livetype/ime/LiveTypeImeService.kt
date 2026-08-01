@@ -12,6 +12,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.text.InputType
+import android.util.TypedValue
 import android.view.Gravity
 import android.view.KeyEvent
 import android.view.View
@@ -61,6 +62,7 @@ class LiveTypeImeService : InputMethodService() {
     private lateinit var enterButton: ImageButton
     private lateinit var backspaceButton: ImageButton
     private lateinit var keyboardButton: ImageButton
+    private lateinit var pasteButton: ImageButton
     private lateinit var cancelButton: Button
     private lateinit var settingsButton: Button
     private lateinit var serverIndicator: Indicator
@@ -73,6 +75,17 @@ class LiveTypeImeService : InputMethodService() {
     private var partialTranscript = StringBuilder()
     /** Chars of [partialTranscript] already committed by a mid-dictation Enter. */
     private var committedChars = 0
+
+    /**
+     * Last recognised phrase, kept in memory for five minutes so the Paste
+     * button can recover a transcript that was committed nowhere — see
+     * [RecentPhrase] for why it is memory-only. Declared after [mainHandler]
+     * because it borrows it; released in [onDestroy].
+     */
+    private val recentPhrase = RecentPhrase(mainHandler) {
+        // Availability changed: the button has to stop looking tappable.
+        if (::pasteButton.isInitialized) refreshButtonAlpha()
+    }
 
     /**
      * Set when the user asks to record before the socket is up: either the mic
@@ -117,7 +130,7 @@ class LiveTypeImeService : InputMethodService() {
         }
 
         // Horizontal split: light-weight status and secondary actions on the
-        // left, the 2x2 grid of big thumb targets pinned to the right edge.
+        // left, the grid of big thumb targets pinned to the right edge.
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             setPadding(dp(14), dp(12), dp(14), dp(12))
@@ -230,6 +243,7 @@ class LiveTypeImeService : InputMethodService() {
             setText(R.string.action_cancel)
             isAllCaps = false
             isEnabled = false
+            fitLabel()
             setOnClickListener {
                 cancelDictation(clearComposingText = true, reason = "user-cancelled")
             }
@@ -240,6 +254,7 @@ class LiveTypeImeService : InputMethodService() {
         settingsButton = Button(this).apply {
             setText(R.string.action_settings)
             isAllCaps = false
+            fitLabel()
             setOnClickListener { openSettings() }
             layoutParams = LinearLayout.LayoutParams(0, dp(52), 1f)
         }
@@ -248,8 +263,14 @@ class LiveTypeImeService : InputMethodService() {
         leftColumn.addView(actions)
         content.addView(leftColumn)
 
-        // 2x2 thumb grid:  [keyboard] [mic]
-        //                  [backspace] [enter]
+        // Thumb grid:  [paste] [keyboard] [mic]
+        //                      [backspace] [enter]
+        //
+        // Paste joins the top row on the left, as asked; the bottom row keeps
+        // two buttons and is pinned to the END so backspace and Enter stay
+        // directly under keyboard and mic — the thumb finds them where it
+        // always did. See THUMB_BUTTON_DP for the width arithmetic that forced
+        // the squares down from 88dp to 72dp.
         val rightColumn = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             layoutParams = LinearLayout.LayoutParams(
@@ -260,7 +281,9 @@ class LiveTypeImeService : InputMethodService() {
         val topRow = thumbRow().apply {
             (layoutParams as LinearLayout.LayoutParams).bottomMargin = dp(THUMB_GAP_DP)
         }
-        val bottomRow = thumbRow()
+        val bottomRow = thumbRow().apply {
+            (layoutParams as LinearLayout.LayoutParams).gravity = Gravity.END
+        }
 
         keyboardButton = createThumbButton(
             R.drawable.ic_keyboard,
@@ -292,9 +315,14 @@ class LiveTypeImeService : InputMethodService() {
         enterButton = createThumbButton(R.drawable.ic_enter, R.string.cd_newline) {
             insertNewline()
         }
+        pasteButton = createThumbButton(R.drawable.ic_paste, R.string.cd_paste) {
+            pasteRecentPhrase()
+        }
 
+        (pasteButton.layoutParams as LinearLayout.LayoutParams).marginEnd = dp(THUMB_GAP_DP)
         (keyboardButton.layoutParams as LinearLayout.LayoutParams).marginEnd = dp(THUMB_GAP_DP)
         (backspaceButton.layoutParams as LinearLayout.LayoutParams).marginEnd = dp(THUMB_GAP_DP)
+        topRow.addView(pasteButton)
         topRow.addView(keyboardButton)
         topRow.addView(primaryButton)
         bottomRow.addView(backspaceButton)
@@ -302,6 +330,10 @@ class LiveTypeImeService : InputMethodService() {
         rightColumn.addView(topRow)
         rightColumn.addView(bottomRow)
         content.addView(rightColumn)
+        // Paste starts inert unless a phrase is already being held — the input
+        // view can be rebuilt mid-session, and setState is not guaranteed to
+        // run before the first frame.
+        refreshButtonAlpha()
         root.addView(content)
 
         // No coloured strip: the blue background already gives the system
@@ -322,7 +354,7 @@ class LiveTypeImeService : InputMethodService() {
         return root
     }
 
-    /** One row of the 2x2 thumb grid. */
+    /** One row of the thumb grid. */
     private fun thumbRow(): LinearLayout = LinearLayout(this).apply {
         orientation = LinearLayout.HORIZONTAL
         layoutParams = LinearLayout.LayoutParams(
@@ -450,6 +482,10 @@ class LiveTypeImeService : InputMethodService() {
 
     override fun onDestroy() {
         cancelDictation(clearComposingText = false, reason = "service-destroyed")
+        // Explicitly, before the blanket removal below: this both drops the
+        // pending five-minute expiry callback and releases the transcript, so
+        // no recognised text survives the service even by a few milliseconds.
+        recentPhrase.release()
         // cancelDictation drops the session timers; this also catches the
         // delayed keyboard switch posted by completeSession. Nothing of ours
         // may outlive the service.
@@ -726,6 +762,10 @@ class LiveTypeImeService : InputMethodService() {
             if (committedChars > 0) pendingTranscript().trim() else transcript.trim()
         val recognised = finalText.isNotEmpty()
         if (recognised) {
+            // Remember before committing, not after: the commit below is
+            // exactly the step that silently does nothing when no editor has
+            // focus, and this is the copy that survives that.
+            recentPhrase.remember(finalText)
             currentInputConnection?.commitText(finalText, 1)
         } else {
             currentInputConnection?.setComposingText("", 1)
@@ -882,9 +922,20 @@ class LiveTypeImeService : InputMethodService() {
 
     /** ImageButton does not fade its drawable on its own. */
     private fun refreshButtonAlpha() {
+        // Paste is the one thumb button whose availability is data-driven
+        // rather than state-driven: it is inert until something has been
+        // recognised, and inert again the moment that phrase expires. Deciding
+        // it here keeps the enabled flag and the faded look in one place.
+        pasteButton.isEnabled = recentPhrase.isAvailable
         // Backspace and the keyboard switch are never disabled, but they go
         // through the same path so the grid stays visually uniform.
-        for (button in listOf(primaryButton, enterButton, backspaceButton, keyboardButton)) {
+        for (button in listOf(
+            primaryButton,
+            enterButton,
+            backspaceButton,
+            keyboardButton,
+            pasteButton,
+        )) {
             button.imageAlpha = if (button.isEnabled) 255 else 80
         }
     }
@@ -1035,6 +1086,35 @@ class LiveTypeImeService : InputMethodService() {
     }
 
     /**
+     * Inserts the last recognised phrase, the recovery path for a transcript
+     * that was committed nowhere because no editor had focus at the time.
+     *
+     * The composing region is handled exactly as [insertNewline] handles it:
+     * pasting mid-dictation freezes what has arrived and marks it committed,
+     * so the final commit appends only the remainder instead of duplicating
+     * the frozen text.
+     *
+     * The phrase is **not** consumed — the first target may have been the
+     * wrong one, and re-dictating is the failure this whole feature exists to
+     * avoid. It goes away on its own five minutes after it was recognised.
+     */
+    private fun pasteRecentPhrase() {
+        // Guard rather than trust the enabled flag: the expiry timer could
+        // land between the touch and this callback.
+        val phrase = recentPhrase.peek()
+        if (phrase.isNullOrEmpty()) {
+            refreshButtonAlpha()
+            return
+        }
+        val connection = currentInputConnection ?: return
+        connection.finishComposingText()
+        if (state == State.RECORDING || state == State.CONNECTING || state == State.FINISHING) {
+            committedChars = partialTranscript.length
+        }
+        connection.commitText(phrase, 1)
+    }
+
+    /**
      * Deletes the whole word before the cursor — the coarse gear of the held
      * backspace. Falls back to a single character whenever [WordDelete] cannot
      * measure a word (no connection, empty field, start of the text, or a live
@@ -1058,6 +1138,28 @@ class LiveTypeImeService : InputMethodService() {
 
     private fun dp(value: Int): Int =
         (value * resources.displayMetrics.density).toInt()
+
+    /**
+     * Makes a left-column action label survive the narrower column that Paste
+     * cost it — see [THUMB_BUTTON_DP] for the arithmetic.
+     *
+     * Cancel and Settings now share 141dp, so each gets ~67dp. The stock
+     * button padding alone is 32dp of that, and Russian "Настройки" needs
+     * ~65dp at 14sp: without this it wraps to two lines or ellipsises. Trimming
+     * the horizontal padding and letting the label scale down (never up — 14sp
+     * stays the ceiling, so English is unchanged) keeps both labels on one
+     * readable line. Autosizing is API 26; minSdk is 28.
+     */
+    private fun Button.fitLabel() {
+        maxLines = 1
+        setPadding(dp(4), 0, dp(4), 0)
+        setAutoSizeTextTypeUniformWithConfiguration(
+            ACTION_TEXT_MIN_SP,
+            ACTION_TEXT_MAX_SP,
+            1,
+            TypedValue.COMPLEX_UNIT_SP,
+        )
+    }
 
     /**
      * Bottom breathing room for the gesture pill / IME switcher. Some editors
@@ -1105,18 +1207,52 @@ class LiveTypeImeService : InputMethodService() {
         private const val WARM_SESSION_MAX_MS = 5 * 60_000L
 
         /**
-         * Square thumb targets on the right edge, laid out 2x2.
+         * Square thumb targets on the right edge:
          *
-         * Width budget on a 411dp screen: 14 + 14 content padding, a 10dp gap
-         * to the left column and 88 + 8 + 88 for the grid leaves 189dp for the
-         * status/indicator column — enough for both indicators (30 + 14 + 30)
-         * and a readable status line.
+         * ```
+         * [paste] [keyboard] [mic]
+         *         [backspace] [enter]
+         * ```
+         *
+         * **Why 72dp and not the 88dp this grid used to be.** Width budget on a
+         * 411dp screen (the reference phone): 411 − 14 − 14 of content padding
+         * = 383dp usable, minus the 10dp gap to the left column = 373dp to
+         * share between the status column and the widest grid row.
+         *
+         * | squares | widest row (3 wide) | left column |
+         * |---|---|---|
+         * | 88dp | 3×88 + 2×8 = 280 | **93dp — does not fit** |
+         * | 80dp | 3×80 + 2×8 = 256 | 117dp — status ~12 chars/line |
+         * | **72dp** | 3×72 + 2×8 = **232** | **141dp** |
+         * | 64dp | 3×64 + 2×8 = 208 | 165dp, but at the accessibility floor |
+         *
+         * At 72dp the left column keeps 141dp, which covers:
+         * - both indicators: 30 + 14 + 30 = 74dp, with room to spare;
+         * - the status line: 141 − 18 (alarm icon) − 6 (its margin) = 117dp,
+         *   about 15 characters per line at 15sp, so the longest string —
+         *   Russian `status_mic_in_use`, 59 chars — wraps to four lines and
+         *   still fits inside the 152dp the grid is tall;
+         * - Cancel and Settings at (141 − 6) / 2 ≈ 67dp each, which needs the
+         *   label autosizing in `fitLabel()` but no wrapping.
+         *
+         * 72dp is 1.5× Material's 48dp minimum touch target and above the ~64dp
+         * floor for a primary control, so the thumb loses nothing that matters.
+         * The grid also gets shorter — 72 + 8 + 72 = 152dp against the old
+         * 184dp — so the keyboard does not grow to pay for the new button.
          */
-        private const val THUMB_BUTTON_DP = 88
+        private const val THUMB_BUTTON_DP = 72
         private const val THUMB_GAP_DP = 8
 
-        /** Keeps the glyph the same fraction of the square as before. */
-        private const val THUMB_ICON_PADDING_DP = 25
+        /** Keeps the glyph the same fraction of the square as before (25/88). */
+        private const val THUMB_ICON_PADDING_DP = 20
+
+        /**
+         * Autosize range for the Cancel / Settings labels. 14sp is the ceiling
+         * so nothing grows past the size they had; 10sp is a floor that is
+         * never actually reached by either language at ~67dp.
+         */
+        private const val ACTION_TEXT_MIN_SP = 10
+        private const val ACTION_TEXT_MAX_SP = 14
 
         /** Status dots for the token worker and the OpenAI socket. */
         private const val INDICATOR_DP = 30

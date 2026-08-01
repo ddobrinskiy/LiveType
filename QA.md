@@ -75,8 +75,11 @@ Last updated: 2026-08-01.
 
 | # | Feature | Me | You | Confirmed |
 |---|---|---|---|---|
-| 29 | Billing UI in settings | not started — agent running | | |
-| 30 | Paste button for the last phrase, 5-minute expiry | not started — agent running | | |
+| 29 | Billing UI in settings | device — **renders, but errors** | yes | **no — broken** |
+| 30 | Paste button for the last phrase, 5-minute expiry | build only | | |
+| 31 | Custom dictionary baked into debug builds (45 terms) | device — verified on a clean install, 45 terms one per line | | |
+| 32 | Debug build self-configures endpoint + secret | device — confirmed after `pm clear` | | |
+| 33 | `data/keywords.txt.age`, age round-trip | partial — encrypt/decrypt verified byte-for-byte; plaintext confirmed untrackable | — | |
 
 ---
 
@@ -92,8 +95,10 @@ Things below are **not** verified and should not be assumed working.
 2. **The silenced-mic UI (#17) has never been seen.** The detection itself is
    confirmed working (#16 — the user saw the message), but the red text and
    warning icon landed afterwards and nobody has looked at that state since.
-3. **Billing returns 500 end to end** until D1 is provisioned. Only the unit
-   tests prove the logic.
+3. **The billing section is visibly broken on the phone** — the user saw it. It
+   renders, but every window shows an error because no D1 database exists, so
+   `GET /usage` returns 500. Not a UI bug: the error path is working as
+   designed. Blocked on question A2 (provision D1). Deliberately not fixed yet.
 4. **CI has never executed.** The workflow is written but no runner has run it.
 5. **The release APK is unsigned**, so it cannot be attached to a GitHub Release
    as is.

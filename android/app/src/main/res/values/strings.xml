@@ -4,8 +4,8 @@
     here automatically. Russian lives in values-ru/strings.xml.
 -->
 <resources>
-    <string name="app_name">LiveType</string>
-    <string name="ime_name">LiveType Voice Input</string>
+    <string name="app_name" translatable="false">LiveType</string>
+    <string name="ime_name" translatable="false">LiveType Voice Input</string>
     <string name="app_tagline">Voice input via OpenAI gpt-live-transcribe</string>
 
     <!-- Keyboard status line -->
@@ -48,13 +48,13 @@
     <string name="cd_newline">Insert a line break</string>
     <string name="cd_backspace">Delete the previous character</string>
 
-    <!-- Connection indicators -->
+    <!-- Connection indicators. indicator_openai is a brand name, not translated. -->
     <string name="indicator_server">Token server</string>
-    <string name="indicator_openai">OpenAI Realtime</string>
+    <string name="indicator_openai" translatable="false">OpenAI Realtime</string>
     <string name="connection_ok">Successfully connected</string>
     <string name="connection_error">Error loading</string>
     <string name="connection_loading">Connecting…</string>
-    <string name="connection_toast">%1$s: %2$s</string>
+    <string name="connection_toast" translatable="false">%1$s: %2$s</string>
 
     <!-- Settings screen -->
     <string name="action_allow_mic">Allow microphone</string>
@@ -67,8 +67,8 @@
     <string name="label_languages">Expected languages, comma separated</string>
     <string name="label_context">Context</string>
     <string name="label_keywords">Terms, one per line</string>
-    <string name="hint_endpoint">https://your-worker.workers.dev/token</string>
-    <string name="hint_device_secret">DEVICE_SECRET</string>
+    <string name="hint_endpoint" translatable="false">https://your-worker.workers.dev/token</string>
+    <string name="hint_device_secret" translatable="false">DEVICE_SECRET</string>
     <string name="checkbox_return_keyboard">Return to the previous keyboard after dictation</string>
     <string name="action_save_settings">Save settings</string>
     <string name="privacy_note">You do not enter your main OpenAI API key here. It is stored only in the Cloudflare Worker. LiveType keeps no dictation history.</string>
@@ -82,5 +82,5 @@
     <!-- Defaults seeded into settings on first run -->
     <string name="default_languages">en</string>
     <string name="default_prompt">Dictation of messages and technical notes. Keep punctuation, English product names and the speaker\'s original language.</string>
-    <string name="default_keywords">OpenAI\nChatGPT\nAndroid\nCloudflare\nWebSocket</string>
+    <string name="default_keywords" translatable="false">OpenAI\nChatGPT\nAndroid\nCloudflare\nWebSocket</string>
 </resources>

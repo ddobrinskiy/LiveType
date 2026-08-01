@@ -49,6 +49,8 @@
     <string name="action_pick_keyboard">Выбрать клавиатуру</string>
     <string name="section_connection">Подключение</string>
     <string name="section_recognition">Распознавание</string>
+    <string name="label_worker_endpoint">Адрес токен-эндпоинта воркера</string>
+    <string name="label_device_secret">Секрет устройства</string>
     <string name="label_languages">Ожидаемые языки через запятую</string>
     <string name="label_context">Контекст</string>
     <string name="label_keywords">Термины, по одному на строку</string>

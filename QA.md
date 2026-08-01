@@ -93,6 +93,7 @@ Last updated: 2026-08-01.
 | 35 | Money rounded to three decimals, tiny amounts as `<$0.001` | partial — checked across realistic amounts in en_US and ru_RU | | | yes |
 | 38 | Silenced mic also reddens the record button; shorter `status_mic_in_use` | build only — needs re-verification on device, including that the button returns to its normal tint when the mic comes back | | | yes |
 | 39 | Max recording length: 1–20 min dropdown (default 3), auto-stop finishes the phrase like the stop button | build only — `assembleDebug` + `lintDebug` + `lintVitalRelease` clean; never waited out a real ceiling on the phone | | | yes |
+| 40 | Keyboard ~30% taller (176dp → 230dp of content) via vertical-only growth: keys 72×96dp, row gap 10dp, content padding 14dp | build only — arithmetic in the `THUMB_BUTTON_HEIGHT_DP` KDoc, `assembleDebug` + `lintDebug` green; not seen on a phone | | | no | yes |
 
 ---
 

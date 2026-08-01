@@ -16,6 +16,12 @@
     <string name="status_getting_key">Getting a temporary key…</string>
     <string name="status_connecting_openai">Connecting to OpenAI…</string>
     <string name="status_listening">Speak — text appears as it is recognised</string>
+    <!--
+        Android gives the live microphone to one client at a time. When another
+        app wins it, our recording keeps running but only receives silence, so
+        say so instead of pretending to listen. Recovery is automatic.
+    -->
+    <string name="status_mic_in_use">Another app is using the microphone — dictation is paused</string>
     <string name="status_finishing">Finishing the phrase…</string>
     <string name="status_done">Done</string>
     <string name="status_no_speech">No speech recognised</string>

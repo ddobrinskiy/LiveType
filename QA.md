@@ -94,6 +94,7 @@ Last updated: 2026-08-01.
 | 39 | Silenced mic also reddens the record button; shorter `status_mic_in_use` | build only — needs re-verification on device, including that the button returns to its normal tint when the mic comes back | | | yes |
 | 40 | Max recording length: 1–20 min dropdown (default 3), auto-stop finishes the phrase like the stop button | build only — `assembleDebug` + `lintDebug` + `lintVitalRelease` clean; never waited out a real ceiling on the phone | | | yes |
 | 41 | Keyboard ~30% taller (176dp → 230dp of content) via vertical-only growth: keys 72×96dp, row gap 10dp, content padding 14dp | build only — arithmetic in the `THUMB_BUTTON_HEIGHT_DP` KDoc, `assembleDebug` + `lintDebug` green; not seen on a phone | | | yes |
+| 44 | Keyboard another 1cm taller and lifted 1cm off the bottom: content 230dp → 293dp (keys 72×126dp, row gap 13dp) plus a 63dp thumb-reach margin under the whole block, 356dp in total (+55%) | build only — arithmetic in the `THUMB_BUTTON_HEIGHT_DP` KDoc, `assembleDebug` + `lintDebug` green; width untouched, but neither the new height nor the lift has been seen on a phone | | | yes |
 
 ---
 

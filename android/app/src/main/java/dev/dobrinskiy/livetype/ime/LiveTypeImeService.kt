@@ -161,13 +161,18 @@ class LiveTypeImeService : InputMethodService() {
 
         // Horizontal split: light-weight status and secondary actions on the
         // left, the grid of big thumb targets pinned to the right edge.
+        //
+        // The bottom margin is the thumb-reach lift — see [BUTTON_BLOCK_LIFT_DP].
+        // It is a *margin on the content*, deliberately not part of the root's
+        // bottom padding, so it stacks on top of `systemInsetPadding()` instead
+        // of competing with it.
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             setPadding(dp(14), dp(CONTENT_PADDING_V_DP), dp(14), dp(CONTENT_PADDING_V_DP))
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT,
-            )
+            ).apply { bottomMargin = dp(BUTTON_BLOCK_LIFT_DP) }
         }
 
         val leftColumn = LinearLayout(this).apply {
@@ -301,7 +306,7 @@ class LiveTypeImeService : InputMethodService() {
         // directly under keyboard and mic — the thumb finds them where it
         // always did. See THUMB_BUTTON_DP for the width arithmetic that forced
         // the keys down to 72dp wide, and THUMB_BUTTON_HEIGHT_DP for the height
-        // arithmetic that made them 96dp tall.
+        // arithmetic that made them 126dp tall.
         val rightColumn = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             layoutParams = LinearLayout.LayoutParams(
@@ -370,6 +375,12 @@ class LiveTypeImeService : InputMethodService() {
         // No coloured strip: the blue background already gives the system
         // glyphs (⌄ and the globe) enough contrast. Just reserve the space so
         // the action row does not sit under them.
+        //
+        // This padding is the gesture-bar reservation and *only* that. The
+        // thumb-reach lift is the content's bottom margin above; the two are
+        // kept apart on purpose, because folding them into one number would
+        // either double-count the gesture area on devices that report an inset
+        // or lose it entirely on the editors that report none.
         root.setPadding(0, 0, 0, systemInsetPadding(0))
         root.setOnApplyWindowInsetsListener { view, insets ->
             val navBar = if (Build.VERSION.SDK_INT >= 30) {
@@ -1357,6 +1368,10 @@ class LiveTypeImeService : InputMethodService() {
      * Bottom breathing room for the gesture pill / IME switcher. Some editors
      * report no navigation-bar inset to the IME window, so keep a floor under
      * it rather than trusting the inset alone.
+     *
+     * Device-driven and nothing else. The centimetre of thumb-reach lift under
+     * the buttons is a separate quantity — [BUTTON_BLOCK_LIFT_DP], applied as
+     * the content's bottom margin — and the two are added, never conflated.
      */
     private fun systemInsetPadding(navBarInsetPx: Int): Int =
         maxOf(navBarInsetPx, dp(24)) + dp(16)
@@ -1436,7 +1451,7 @@ class LiveTypeImeService : InputMethodService() {
          * - the status line: 141 − 18 (alarm icon) − 6 (its margin) = 117dp,
          *   about 15 characters per line at 15sp, so the longest string —
          *   Russian `status_listening`, 45 chars — wraps to four lines and
-         *   still fits inside the 202dp the grid is tall;
+         *   still fits inside the 265dp the grid is tall;
          * - Cancel and Settings at (141 − 6) / 2 ≈ 67dp each, which needs the
          *   label autosizing in `fitLabel()` but no wrapping.
          *
@@ -1449,26 +1464,37 @@ class LiveTypeImeService : InputMethodService() {
         private const val THUMB_BUTTON_DP = 72
 
         /**
-         * The same targets, 96dp **tall** — the keys are deliberately not
+         * The same targets, 126dp **tall** — the keys are deliberately not
          * square.
          *
-         * The keyboard was too short and had to grow ~30%, but width is spoken
-         * for: every dp added to [THUMB_BUTTON_DP] is taken three times over
-         * from the left column, which at 141dp is already autosizing its button
+         * The keyboard was too short and had to grow, but width is spoken for:
+         * every dp added to [THUMB_BUTTON_DP] is taken three times over from
+         * the left column, which at 141dp is already autosizing its button
          * labels to fit. Height costs nothing, and a key taller than it is wide
          * suits a thumb arriving from below better than a square does.
          *
          * So all the growth is vertical. Content height on the reference phone,
-         * where the grid is what the keyboard is as tall as:
+         * where the grid is what the keyboard is as tall as. The `+1cm` column
+         * is the current one; `dp` is 1/160 inch by definition, so **1cm is
+         * 62.99dp on every device** — the request was in centimetres and this is
+         * the whole of the conversion. (On the reference Pixel 9, 420dpi /
+         * density 2.625, that same centimetre is 165px.)
          *
-         * | | before | after |
-         * |---|---|---|
-         * | content padding, top | 12 | 14 |
-         * | top row | 72 | **96** |
-         * | row gap ([THUMB_ROW_GAP_DP]) | 8 | **10** |
-         * | bottom row | 72 | **96** |
-         * | content padding, bottom | 12 | 14 |
-         * | **total** | **176dp** | **230dp** (+30.7%) |
+         * | | 88dp keys | 96dp keys | **now** |
+         * |---|---|---|---|
+         * | content padding, top ([CONTENT_PADDING_V_DP]) | 12 | 14 | 14 |
+         * | top row | 72 | 96 | **126** |
+         * | row gap ([THUMB_ROW_GAP_DP]) | 8 | 10 | **13** |
+         * | bottom row | 72 | 96 | **126** |
+         * | content padding, bottom | 12 | 14 | 14 |
+         * | **content total** | **176dp** | **230dp** | **293dp** (+63 = 1cm) |
+         * | thumb-reach lift ([BUTTON_BLOCK_LIFT_DP]) | 0 | 0 | **63** |
+         * | **block total** | **176dp** | **230dp** | **356dp** (+55%) |
+         *
+         * Of the 63dp of new *content*, 60 went to the keys (30 per row) and 3
+         * to the row gap, so the two rows do not read as one slab as they grow.
+         * The content padding is untouched: it is edge breathing room, and the
+         * ask was thumb reach, which is what the key faces and the lift buy.
          *
          * `systemInsetPadding()` sits below all of this and is untouched — it
          * reserves the gesture bar, not keyboard.
@@ -1476,25 +1502,46 @@ class LiveTypeImeService : InputMethodService() {
          * Consequences:
          * - The glyph does not grow. [THUMB_ICON_PADDING_DP] is 20 on all four
          *   sides, so FIT_CENTER still resolves a square drawable inside
-         *   72 − 40 = 32dp of width; the extra 24dp of height is padding.
-         * - The left column gets 202dp of usable height against 152dp before,
+         *   72 − 40 = 32dp of width; the extra 54dp of height is padding.
+         * - 72×126 is a 1:1.75 portrait key. That is deliberate: the thumb
+         *   swings up a shallow arc, so vertical slack forgives the aim error
+         *   this grid actually suffers, and the extra travel between rows costs
+         *   nothing because the row gap grew with it.
+         * - The left column gets 265dp of usable height against 202dp before,
          *   all of it to the weight-1 status block: the four-line Russian
-         *   `status_mic_in_use` now clears the grid instead of being the thing
-         *   that sets the keyboard's height, and the two indicators and the
-         *   52dp action row are unchanged.
+         *   `status_mic_in_use` clears the grid with room over, and the two
+         *   indicators and the 52dp action row are unchanged.
          * - The 64dp accessibility floor is measured on the smaller dimension,
          *   which is still the 72dp width.
          */
-        private const val THUMB_BUTTON_HEIGHT_DP = 96
+        private const val THUMB_BUTTON_HEIGHT_DP = 126
 
         /** Gap **between** two keys in a row; a width cost, so it stays 8dp. */
         private const val THUMB_GAP_DP = 8
 
         /** Gap between the two rows. Vertical, hence free — see above. */
-        private const val THUMB_ROW_GAP_DP = 10
+        private const val THUMB_ROW_GAP_DP = 13
 
         /** Top and bottom padding of the content block. Also free. */
         private const val CONTENT_PADDING_V_DP = 14
+
+        /**
+         * Empty space below the whole content block — status column and thumb
+         * grid alike — so the buttons sit a centimetre higher up the screen and
+         * inside the thumb's natural arc. 63dp, i.e. 1cm; see the table on
+         * [THUMB_BUTTON_HEIGHT_DP] for where it lands in the total.
+         *
+         * **This is not the gesture-bar reservation and must never be merged
+         * with it.** `systemInsetPadding()` is the root's *bottom padding* and
+         * answers a question about the device — how much of the bottom edge the
+         * navigation pill or the IME switcher owns — with a floor under it for
+         * the editors that report no inset at all. This constant is the
+         * *content's bottom margin* and answers a question about the hand. They
+         * stack, in that order, and each keeps its own reason to exist: fold
+         * them into one number and the gesture area is counted twice on devices
+         * that report an inset and not at all on the ones that do not.
+         */
+        private const val BUTTON_BLOCK_LIFT_DP = 63
 
         /** Keeps the glyph the same fraction of the square as before (25/88). */
         private const val THUMB_ICON_PADDING_DP = 20

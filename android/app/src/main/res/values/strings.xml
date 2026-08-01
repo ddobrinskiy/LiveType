@@ -26,11 +26,14 @@
     <string name="status_done">Done</string>
     <!--
         Shown instead of status_done when the recording ceiling stopped the
-        phrase rather than the user. Deliberately not an error: the audio was
-        committed and the text inserted exactly as a tap on stop would have
-        done. %1$s is the configured limit, e.g. "3 minutes".
+        phrase rather than the user. Not an error — the audio was committed and
+        the text inserted exactly as a tap on stop would have done — but the
+        recording ended without the user asking, so it is drawn red and bold and
+        carries its own ⚠️ here in the string. That emoji is why the state does
+        NOT pass warning=true: the separate warning ImageView would then say the
+        same thing twice. %1$s is the configured limit, e.g. "3 minutes".
     -->
-    <string name="status_stopped_time_limit">Stopped after %1$s — recording limit reached</string>
+    <string name="status_stopped_time_limit">⚠️ Stopped after %1$s — recording limit reached</string>
     <string name="status_no_speech">No speech recognised</string>
     <string name="status_error">Error</string>
     <string name="status_setup_needed">Setup required</string>

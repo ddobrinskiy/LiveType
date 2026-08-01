@@ -945,10 +945,15 @@ class LiveTypeImeService : InputMethodService() {
         // A phrase the ceiling ended says so instead, and says so ahead of
         // "no speech recognised": an unexpectedly stopped recording is the
         // surprising part, and leaving it unexplained is what makes it
-        // mysterious. Nothing about it is an error — the text is already in
-        // the editor — so no warning icon and no red.
+        // mysterious. It gets `emphasis` — red and bold, because the recording
+        // ended without the user asking — but not `warning`: nothing failed,
+        // the text is already in the editor, the record button must not go red
+        // in READY, and the ⚠️ already lives in the string, so lighting the
+        // icon too would say it twice.
+        val limitReached = stoppedByRecordingLimit
+        stoppedByRecordingLimit = false
         val finalStatus = when {
-            stoppedByRecordingLimit -> getString(
+            limitReached -> getString(
                 R.string.status_stopped_time_limit,
                 resources.getQuantityString(
                     R.plurals.recording_limit_minutes,
@@ -960,8 +965,11 @@ class LiveTypeImeService : InputMethodService() {
             recognised -> getString(R.string.status_done)
             else -> getString(R.string.status_no_speech)
         }
-        stoppedByRecordingLimit = false
-        setState(if (socketHeld) State.READY else State.IDLE, finalStatus)
+        setState(
+            if (socketHeld) State.READY else State.IDLE,
+            finalStatus,
+            emphasis = limitReached,
+        )
         val indicators = if (socketHeld) ConnectionState.OK else ConnectionState.IDLE
         setConnectionStates(indicators, indicators)
 
@@ -1039,20 +1047,42 @@ class LiveTypeImeService : InputMethodService() {
         statusText.setText(R.string.status_setup_needed)
         statusText.text = message
         statusText.setTextColor(ERROR_COLOR)
+        // The one status writer that does not go through setState, so it has to
+        // drop the emphasised weight itself: this can land straight on top of a
+        // ceiling message (mic tap into an unavailable field right after a
+        // limited recording) and would otherwise inherit its bold.
+        statusText.setTypeface(null, Typeface.NORMAL)
     }
 
     /**
-     * The single writer of the status line — text, colour and alarm icon alike.
+     * The single writer of the status line — text, colour, weight and alarm
+     * icon alike.
      *
      * @param warning marks the status as a live problem the user should act on:
      *   red text, the alarm icon and a red record button, which no other state
      *   shows. The session itself stays up — a failure goes through
      *   [failSession] instead — and the next plain [setState] clears all three
      *   again.
+     * @param emphasis says "this happened without you asking" for a status that
+     *   is *not* a live problem: red and bold text, but no alarm icon and no red
+     *   record button. Used by the recording ceiling, whose message carries its
+     *   own ⚠️ inside the string resource — hence no icon, which would repeat
+     *   it, and which would also make the record button red in READY.
      */
-    private fun setState(newState: State, status: String, warning: Boolean = false) {
+    private fun setState(
+        newState: State,
+        status: String,
+        warning: Boolean = false,
+        emphasis: Boolean = false,
+    ) {
         state = newState
-        statusText.setTextColor(if (warning) ERROR_COLOR else STATUS_COLOR)
+        // Both branches assign unconditionally, in both directions, for the
+        // same reason the button tint below does: a status line left bold or
+        // red because some recovery path forgot to un-set it is worse than one
+        // that never styles itself at all. Every state change repaints all
+        // three, so recovery is whatever the next setState says.
+        statusText.setTextColor(if (warning || emphasis) ERROR_COLOR else STATUS_COLOR)
+        statusText.setTypeface(null, if (emphasis) Typeface.BOLD else Typeface.NORMAL)
         statusText.text = status
         warningIcon.visibility = if (warning) View.VISIBLE else View.INVISIBLE
         when (newState) {

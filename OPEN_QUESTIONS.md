@@ -22,7 +22,7 @@ the phone is tethered over USB with `adb reverse` running. `wrangler deploy`
 puts it on a public URL and cuts the cable. Free tier covers this easily — one
 request per dictation session against a 100k/day allowance.
 
-Blocks: A2, and effectively A5.
+Blocks: A2. (Rate limiting was considered and deliberately deferred — see R8.)
 
 ### A2 — Provision a remote D1? *(raised 2026-08-01, partly resolved)*
 **Should billing history live in the cloud, or is the Mac enough?**
@@ -47,13 +47,6 @@ scan clean. Never pushed — publishing is yours to trigger.
 `assembleRelease` produces an *unsigned* APK, so it cannot be attached to a
 GitHub Release as-is. Needs a signing config fed from secrets, keystore kept out
 of the repo.
-
-### A5 — Rate limiting before deploy *(raised 2026-08-01, no answer yet)*
-**Add rate limiting to the Worker before it goes public?**
-
-I raised this and it got lost. Once deployed, the endpoint is a public URL
-protected by one static `DEVICE_SECRET`. Without a limiter there is no ceiling
-on damage if that secret leaks. I can add it; it should land before A1.
 
 ### A7 — FUTO mic hand-off *(raised 2026-08-01)*
 **Wire FUTO's mic button to LiveType?**
@@ -138,4 +131,5 @@ app kept. Say so if you would rather under-report those.
 | R5 | Can we get the microphone back from a screen recorder? | **No** — Android policy, not a bug. Handle it honestly instead. | 2026-08-01 |
 | R6 | Dark theme for keyboard contrast? | **No.** Background `#E0EAEC`; system glyphs made dark via `APPEARANCE_LIGHT_NAVIGATION_BARS`. | 2026-08-01 |
 | B4 | Should prewarm resume after a completed dictation? | **The question was wrong.** Nothing needs re-warming: one transcription session handles many phrases — verified on the live API, three phrases through one socket, each with its own `item_id` and `usage`. `completeSession` now keeps the socket and returns to `READY` with the indicators green; the "Done" feedback survives because nothing reconnects over it. The 5-minute ceiling is re-armed per phrase so it measures idleness, not session age. | 2026-08-01 |
+| R8 | Add rate limiting before deploying the Worker? | **Not for now** — deploy without it, at the user's call. Consequence, stated plainly: the endpoint is a public URL guarded by one static `DEVICE_SECRET`, that secret has already leaked once (in a screen recording), and without a limiter there is no ceiling on spend if it leaks again. Rotate the secret and revisit before the worker is used seriously. | 2026-08-01 |
 | R7 | Should Paste also copy to the system clipboard? | **No.** The last phrase lives in app memory for five minutes and is inserted from there. The system clipboard is readable by every app — a materially weaker privacy posture, and inconsistent with "LiveType keeps no dictation history". | 2026-08-01 |

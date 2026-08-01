@@ -101,7 +101,7 @@ Last updated: 2026-08-01.
 
 ---
 
-| 49 | Settings fields opted out of autofill, so a password manager no longer offers to save the device secret | build only — `assembleDebug` clean; the Bitwarden prompt appeared on leaving the screen and has not been re-tested | | | yes |
+| 49 | Settings fields opted out of autofill, so a password manager no longer offers to save the device secret | device — masking now via PasswordTransformationMethod, not a password input type | yes | **yes** | yes |
 
 ## Deployment (attempted 2026-08-01 — blocked on the Cloudflare account)
 

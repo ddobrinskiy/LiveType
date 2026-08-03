@@ -59,6 +59,7 @@ model. Hints are trimmed, de-duplicated and clamped (8 languages, 100 keywords,
 | `worker/` | The Cloudflare Worker that mints ephemeral tokens, plus its Vitest suite. |
 | `data/keywords.txt.age` | The maintainer's personal vocabulary list, encrypted (see below). Nothing needs it. |
 | `scripts/` | `keywords-encrypt.sh` / `keywords-decrypt.sh` for that file. |
+| `android/keystore.properties.age` | The maintainer's release-signing password, encrypted to the same recipient. Nothing needs it either — see [Cutting a release](#cutting-a-release-maintainer). |
 | `AGENTS.md` | Architecture notes, the local dev loop, and hard-won API details. |
 
 **`data/keywords.txt.age` is not a secret you are missing.** It is one person's
@@ -325,12 +326,35 @@ CI runs those tests and an Android debug build on every push and pull request.
 
 ### Cutting a release (maintainer)
 
-Release signing is driven by `android/keystore.properties`, which is gitignored
-and holds a keystore path plus its password. The keystore lives outside the repo
-at `~/.secrets/livetype/release.jks` — **back it up**; without it no future
-build can update an already-installed LiveType. When that properties file is
-absent, no `signingConfig` is registered at all and `assembleRelease` produces
-an unsigned APK, so fresh clones and CI still build.
+Release signing is driven by `android/keystore.properties`, which holds a
+keystore path plus its password. When that file is absent, no `signingConfig` is
+registered at all and `assembleRelease` produces an unsigned APK — that is what
+keeps fresh clones and CI building without the key.
+
+The plaintext is gitignored; `android/keystore.properties.age` is the committed
+copy, encrypted to the same age recipient as the keyword list (see
+[Repository layout](#repository-layout)). Restore it on a new machine with:
+
+```bash
+age -d -i ~/.config/chezmoi/key.txt -o android/keystore.properties \
+  -- android/keystore.properties.age
+chmod 600 android/keystore.properties
+```
+
+Re-encrypt after any edit, and commit the result:
+
+```bash
+age -r age1aqdf22l6p03g408sg9m9jxu6hwmml0vn9sr7jukff0ty35dwsuuswv9ak4 \
+  -o android/keystore.properties.age -- android/keystore.properties
+```
+
+That covers the password and the path, **not the keystore itself**. The
+keystore lives outside the repo at `~/.secrets/livetype/release.jks` and has no
+other copy — back it up separately. Its certificate is SHA-256
+`f817ef58…c9577bb5`; verify a restored copy with
+`keytool -list -v -keystore release.jks -alias livetype`. Without that file no
+future build can update an already-installed LiveType, and the password alone
+does not help.
 
 ```bash
 # 1. bump versionCode AND versionName in android/app/build.gradle.kts

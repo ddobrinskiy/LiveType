@@ -11,8 +11,10 @@ worker/.wrangler/
 *.dev.vars
 local.properties
 
-# Release signing: path + password for the keystore. The keystore itself is
-# kept outside the repo entirely (~/.secrets/livetype/release.jks).
+# Release signing: path + password for the keystore. Only the age-encrypted
+# copy (android/keystore.properties.age) is committed — same recipient as
+# data/keywords.txt.age. The keystore itself is kept outside the repo entirely
+# (~/.secrets/livetype/release.jks) and is never committed in any form.
 keystore.properties
 *.jks
 *.keystore

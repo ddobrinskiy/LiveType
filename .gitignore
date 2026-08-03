@@ -11,6 +11,12 @@ worker/.wrangler/
 *.dev.vars
 local.properties
 
+# Release signing: path + password for the keystore. The keystore itself is
+# kept outside the repo entirely (~/.secrets/livetype/release.jks).
+keystore.properties
+*.jks
+*.keystore
+
 # Personal vocabulary in the clear. Only the age-encrypted copy
 # (data/keywords.txt.age) is committed — see scripts/keywords-*.sh.
 data/keywords.txt

@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -77,6 +79,23 @@ val debugTokenEndpoint = "http://127.0.0.1:8787/token"
 // the settings dropdown disabled exactly as it was before deployment.
 val prodTokenEndpoint = readDevVar("PROD_TOKEN_ENDPOINT")
 
+// Release signing. android/keystore.properties is gitignored and holds only a
+// path and a password; the keystore itself lives outside the repo (see the
+// file's own comment). Absent file -> no signingConfig at all, and
+// assembleRelease falls back to producing app-release-unsigned.apk. That is
+// deliberate: a fresh clone and CI must still build a release without holding
+// the maintainer's key.
+val keystorePropertiesFile = rootProject.file("keystore.properties")
+
+val keystoreProperties: Properties? =
+    if (keystorePropertiesFile.isFile) {
+        Properties().apply {
+            keystorePropertiesFile.inputStream().use { load(it) }
+        }
+    } else {
+        null
+    }
+
 android {
     namespace = "dev.dobrinskiy.livetype"
     compileSdk = 35
@@ -86,8 +105,19 @@ android {
         applicationId = "dev.dobrinskiy.livetype"
         minSdk = 28
         targetSdk = 35
-        versionCode = 2
-        versionName = "0.1.1"
+        versionCode = 3
+        versionName = "0.1.2"
+    }
+
+    signingConfigs {
+        if (keystoreProperties != null) {
+            create("release") {
+                storeFile = file(keystoreProperties.getProperty("storeFile"))
+                storePassword = keystoreProperties.getProperty("storePassword")
+                keyAlias = keystoreProperties.getProperty("keyAlias")
+                keyPassword = keystoreProperties.getProperty("keyPassword")
+            }
+        }
     }
 
     buildFeatures {
@@ -110,6 +140,7 @@ android {
         }
         getByName("release") {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.findByName("release")
             // Release ships no baked credentials and no personal vocabulary —
             // configured by hand on device.
             buildConfigField("String", "DEFAULT_TOKEN_ENDPOINT", "\"\"")

@@ -15,9 +15,10 @@ token.
 - English and Russian UI, picked from the device locale.
 - No account, no analytics, no backend of your own beyond the token Worker.
 
-> LiveType is a personal-scale project: it is designed for you to deploy your
-> own Worker and sideload your own build. See [Security model](#security-model)
-> before handing the APK to anyone else.
+> LiveType is a personal-scale project. There is no hosted service: you deploy
+> your own token Worker against your own OpenAI account, and sideload the app.
+> Start at [Install](#install). See [Security model](#security-model) before
+> handing a **configured** phone or APK to anyone else.
 
 ## How it works
 
@@ -73,28 +74,94 @@ allowed) — or just type your terms into the app's **Terms** field.
 
 - Android 9 (API 28) or newer on the phone.
 - A Cloudflare account (the free plan is enough).
-- An OpenAI API key on a project with billing enabled. A ChatGPT Plus
-  subscription does **not** include API access.
+- An OpenAI API key with **prepaid credit on the account**. This is the step
+  people get wrong most often, so in detail:
+  - A ChatGPT Plus/Pro subscription does **not** include API access. The API is
+    billed separately.
+  - Add credit at **platform.openai.com → Settings → Billing**. There is a
+    minimum top-up (currently $5); a new account with $0 credit returns
+    `429 insufficient_quota` on the first dictation and nothing works.
+  - Create a **dedicated project** for LiveType and a key scoped to it
+    (**Settings → API keys → Create new secret key**, project-scoped), then set
+    a low monthly budget and an email alert on that project. The device secret
+    is a shared secret (see [Security model](#security-model)); a per-project
+    budget is what bounds the damage if it leaks.
+  - The key looks like `sk-proj-…`. You paste it into Cloudflare once, in
+    step 1 — never into the phone.
 - Node.js 20+ for the Worker.
-- To build the app: JDK 17 and the Android SDK (platform 35, build-tools
-  35.0.0). Android Studio provides both.
+- To build the app yourself (optional — releases ship a signed APK): JDK 17 and
+  the Android SDK (platform 35, build-tools 35.0.0). Android Studio provides
+  both.
 
-## 1. Deploy the token Worker
+## Install
+
+Three steps: deploy your Worker, install the APK, type two values into the app.
+
+### Let an agent do it
+
+Step 1 is entirely mechanical. If you use a coding agent (Claude Code, or
+similar), clone the repo, `cd` into it and paste this — steps 2 and 3 happen on
+the phone and are yours to do:
+
+```text
+Set up the LiveType token Worker in this repo for me. Read README.md
+"Deploy the token Worker" first, then do it.
+
+1. Confirm Node 20+ is installed and that `npx wrangler whoami` shows me logged
+   in. If it does not, stop and tell me to run `npx wrangler login` myself.
+2. In worker/: create MY OWN D1 database with `npx wrangler d1 create
+   livetype-usage`, put the id it prints into wrangler.jsonc as database_id
+   (replacing the one committed in the repo, which is not mine), then run
+   `npx wrangler d1 migrations apply livetype-usage --remote`.
+3. Generate a device secret with `openssl rand -hex 32`. Show it to me once at
+   the end. Do not write it into any file in the repo.
+4. Set both Worker secrets with `npx wrangler secret put OPENAI_API_KEY` and
+   `npx wrangler secret put DEVICE_SECRET`. Prompt me to paste each value
+   interactively; never put either one in a file, a command argument, or your
+   own output.
+5. Run `npm run deploy`.
+6. Verify it works: POST to the deployed /token with the correct
+   X-Device-Secret and confirm it returns a client secret, then repeat with a
+   wrong secret and confirm 401.
+7. Finish by printing exactly two things for me to type into the app: the
+   Worker URL with /token appended, and the device secret from step 3.
+
+Never commit a secret. Never echo my OpenAI key back to me.
+```
+
+Then skip to [step 2](#2-install-the-app).
+
+### 1. Deploy the token Worker
 
 Generate a device secret first — this is the credential the phone will present
-to your Worker:
+to your Worker. It is not an OpenAI key and has nothing to do with your OpenAI
+account; it exists only so strangers cannot spend your credit through your
+Worker:
 
 ```bash
 openssl rand -hex 32
+# e.g. 9f2c...ab (64 hex characters) — keep this, you type it into the app later
 ```
 
-Then deploy:
+The Worker writes a usage ledger to a D1 database. The `database_id` committed
+in `worker/wrangler.jsonc` is the maintainer's and you cannot deploy against
+it, so create your own first:
 
 ```bash
 cd worker
 npm ci
 npx wrangler login
-npx wrangler secret put OPENAI_API_KEY   # paste your OpenAI key
+
+npx wrangler d1 create livetype-usage
+# Paste the printed database_id into wrangler.jsonc, replacing the existing one.
+npx wrangler d1 migrations apply livetype-usage --remote
+```
+
+Then set the two secrets and deploy. `wrangler secret put` prompts for the
+value on stdin — it never appears in your shell history:
+
+```bash
+npx wrangler secret put OPENAI_API_KEY   # paste your sk-proj-… key
 npx wrangler secret put DEVICE_SECRET    # paste the value from openssl
 npm run deploy
 ```
@@ -109,7 +176,24 @@ https://livetype-token.your-account.workers.dev/token
 a matching `X-Device-Secret` header gets 401 (the comparison is
 constant-time over SHA-256 digests).
 
-### Choosing a transcription model
+Smoke-test it before touching the phone — the first call should return JSON
+containing a client secret, the second should return 401:
+
+```bash
+SECRET=<your device secret>
+URL=https://livetype-token.your-account.workers.dev/token
+
+curl -s -X POST "$URL" -H "X-Device-Secret: $SECRET" \
+  -H 'Content-Type: application/json' -d '{"languages":["en"]}'
+
+curl -s -o /dev/null -w '%{http_code}\n' -X POST "$URL" \
+  -H 'X-Device-Secret: wrong' -H 'Content-Type: application/json' -d '{}'
+```
+
+A `429` or a quota error from the first call means the OpenAI account has no
+credit — see [Prerequisites](#prerequisites).
+
+#### Choosing a transcription model
 
 The Worker defaults to `gpt-live-transcribe`. To change it, set the optional
 `TRANSCRIPTION_MODEL` variable — in `wrangler.jsonc` under `vars`, or in the
@@ -131,25 +215,32 @@ support, so the Worker drops unsupported hints instead of forwarding them:
 
 Verified against the live API on 2026-08-01.
 
-### Continuous deployment (optional)
+#### Continuous deployment (optional)
 
 In the Cloudflare dashboard: **Workers & Pages → your Worker → Settings →
 Builds → Connect**, pointed at your fork. Root directory `worker`, build
 command `npm ci`, deploy command `npx wrangler deploy`. Secrets stay in
 Cloudflare; never put `OPENAI_API_KEY` in the repository.
 
-## 2. Install the app
+### 2. Install the app
 
-Prebuilt APKs are published on the
-[GitHub Releases](../../releases) page — download the latest one and install it
-on the phone. Nothing is tracked in git.
+Download `LiveType-<version>.apk` from the
+[GitHub Releases](../../releases) page and open it on the phone. Android will
+ask you to allow installing from your browser or file manager; this is a
+sideload, LiveType is not on any app store. No APK is tracked in git.
 
-To build it yourself:
+The release APK carries **no credentials and no vocabulary** — every
+`BuildConfig` default is empty, so a fresh install starts blank and you
+configure it in step 3. It is signed with the maintainer's release key
+(SHA-256 `f817ef58…c9577bb5`), which is what lets later versions install as an
+in-place update.
+
+To build it yourself instead:
 
 ```bash
 cd android
-./gradlew assembleDebug
-# app/build/outputs/apk/debug/app-debug.apk
+./gradlew assembleRelease
+# app/build/outputs/apk/release/app-release-unsigned.apk
 ```
 
 `./gradlew` is a small bootstrap script that downloads Gradle 8.9 on first use;
@@ -158,10 +249,14 @@ there is no committed wrapper jar. It needs the Android SDK — either set
 `sdk.dir=/path/to/Android/sdk`. Opening `android/` in Android Studio and
 pressing Run works too.
 
-Release builds (`./gradlew assembleRelease`) are unsigned; sign them with your
-own key before distributing.
+Your own release build is **unsigned** and Android will refuse to install it as
+is; sign it with your own key (`apksigner sign --ks …`). A self-signed build
+cannot update an install that came from a Release APK, or the reverse — pick one
+source and stay with it, or uninstall in between. `./gradlew assembleDebug`
+remains the quickest path for development and is signed with the local debug
+key automatically.
 
-## 3. Configure LiveType
+### 3. Configure LiveType
 
 1. Open the LiveType app and grant microphone permission.
 2. **Worker token endpoint** — the `/token` URL from step 1. Release builds
@@ -228,6 +323,26 @@ cd worker && npm ci && npx vitest run
 
 CI runs those tests and an Android debug build on every push and pull request.
 
+### Cutting a release (maintainer)
+
+Release signing is driven by `android/keystore.properties`, which is gitignored
+and holds a keystore path plus its password. The keystore lives outside the repo
+at `~/.secrets/livetype/release.jks` — **back it up**; without it no future
+build can update an already-installed LiveType. When that properties file is
+absent, no `signingConfig` is registered at all and `assembleRelease` produces
+an unsigned APK, so fresh clones and CI still build.
+
+```bash
+# 1. bump versionCode AND versionName in android/app/build.gradle.kts
+cd android && ./gradlew clean assembleRelease
+# 2. confirm the release carries no secrets and no personal vocabulary
+#    (empty BuildConfig defaults; the release build type sets them to "")
+# 3. tag and publish
+git tag -a v0.1.2 -m 'LiveType 0.1.2' && git push origin v0.1.2
+gh release create v0.1.2 \
+  app/build/outputs/apk/release/app-release.apk#LiveType-0.1.2.apk
+```
+
 ## Security model
 
 `DEVICE_SECRET` is a shared secret baked into your phone's settings. It keeps
@@ -240,8 +355,16 @@ acceptable trade for a personal sideloaded keyboard when combined with:
 - Cloudflare rate limiting on the Worker route;
 - rotating `DEVICE_SECRET` (redeploy + re-enter in the app) if a phone is lost.
 
-Do not ship this to Google Play as-is. A public distribution needs real user
-authentication or device attestation in place of the shared secret.
+Publishing the APK is fine, and is what the Releases page does: the release
+build ships no endpoint and no secret, so each user points it at a Worker they
+deployed themselves under their own OpenAI account. What must not be handed
+around is a *configured* build or phone, because that carries your
+`DEVICE_SECRET`.
+
+What this model does not support is a **hosted** LiveType — one Worker and one
+OpenAI key serving users who did not deploy it. That needs real user
+authentication or device attestation in place of the shared secret, which is
+also why this is not on Google Play as-is.
 
 ## Privacy
 

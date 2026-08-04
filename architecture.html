@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LiveType — architecture map</title>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@11.9.0/dist/mermaid.min.js"></script>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0b1114;
+      --panel: #121c21;
+      --panel-2: #17252b;
+      --line: #2b3c43;
+      --text: #e7f0f2;
+      --muted: #9bb0b6;
+      --shared: #47d7a0;
+      --android: #69b7ff;
+      --ios: #bf9bff;
+      --qa: #f5bd68;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-width: 320px;
+      background: radial-gradient(circle at 15% 0%, #172a31 0, var(--bg) 38rem);
+      color: var(--text);
+      font: 16px/1.55 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    main { width: min(1440px, calc(100% - 40px)); margin: 0 auto; padding: 52px 0 72px; }
+    h1, h2 { line-height: 1.15; letter-spacing: -0.03em; }
+    h1 { margin: 0 0 12px; font-size: clamp(2.2rem, 5vw, 4.7rem); }
+    h2 { margin: 0 0 18px; font-size: clamp(1.35rem, 2vw, 2rem); }
+    p { color: var(--muted); max-width: 900px; }
+    code { color: #d6f7ed; font-family: "SFMono-Regular", Consolas, monospace; font-size: .9em; }
+    .eyebrow { color: var(--shared); font-weight: 750; letter-spacing: .13em; text-transform: uppercase; font-size: .76rem; }
+    .lede { font-size: 1.12rem; max-width: 920px; }
+    .legend, .grid, .diagram-card, .note {
+      border: 1px solid var(--line);
+      background: color-mix(in srgb, var(--panel) 94%, transparent);
+      border-radius: 20px;
+      box-shadow: 0 18px 55px #0005;
+    }
+    .legend { display: flex; flex-wrap: wrap; gap: 10px; margin: 28px 0 30px; padding: 14px; }
+    .pill { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); font-size: .9rem; }
+    .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+    .dot.shared { background: var(--shared); }
+    .dot.android { background: var(--android); }
+    .dot.ios { background: var(--ios); }
+    .dot.qa { background: var(--qa); }
+    section { margin-top: 34px; }
+    .diagram-card { padding: 24px 18px 18px; overflow: hidden; }
+    .diagram { overflow-x: auto; padding: 8px; }
+    .mermaid { min-width: 1080px; }
+    .mermaid svg { max-width: none; height: auto; }
+    .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); overflow: hidden; }
+    .column { padding: 24px; min-height: 260px; border-right: 1px solid var(--line); }
+    .column:last-child { border-right: 0; }
+    .column h3 { margin: 0 0 12px; font-size: 1.18rem; }
+    .column.shared h3 { color: var(--shared); }
+    .column.android h3 { color: var(--android); }
+    .column.ios h3 { color: var(--ios); }
+    ul { margin: 0; padding-left: 21px; color: var(--muted); }
+    li + li { margin-top: 8px; }
+    .mapping { width: 100%; border-collapse: collapse; }
+    .mapping th, .mapping td { text-align: left; vertical-align: top; padding: 15px 16px; border-bottom: 1px solid var(--line); }
+    .mapping th { color: var(--text); background: var(--panel-2); font-size: .88rem; }
+    .mapping td { color: var(--muted); }
+    .mapping tr:last-child td { border-bottom: 0; }
+    .mapping td:first-child { width: 22%; color: var(--text); font-weight: 650; }
+    .note { margin-top: 24px; padding: 18px 20px; border-left: 4px solid var(--qa); }
+    .note strong { color: var(--qa); }
+    footer { margin-top: 28px; color: #71858b; font-size: .88rem; }
+    a { color: #8bd4ff; }
+    @media (max-width: 860px) {
+      main { width: min(100% - 24px, 680px); padding-top: 30px; }
+      .grid { grid-template-columns: 1fr; }
+      .column { border-right: 0; border-bottom: 1px solid var(--line); }
+      .column:last-child { border-bottom: 0; }
+      .mapping { display: block; overflow-x: auto; min-width: 760px; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="eyebrow">LiveType · architecture map</div>
+    <h1>Что общее, а что платформенное</h1>
+    <p class="lede">
+      Kotlin и Swift здесь не являются одним общим исходным модулем. Переиспользуется
+      поведение и wire-контракт, а системные границы — клавиатура, микрофон,
+      sandbox и подпись — реализованы отдельно для Android и iOS.
+    </p>
+    <div class="legend" aria-label="Legend">
+      <span class="pill"><i class="dot shared"></i>общий контракт / backend</span>
+      <span class="pill"><i class="dot android"></i>только Android</span>
+      <span class="pill"><i class="dot ios"></i>только iOS</span>
+      <span class="pill"><i class="dot qa"></i>QA и локальный double</span>
+    </div>
+
+    <section class="diagram-card">
+      <h2>Системная карта</h2>
+      <div class="diagram">
+        <div class="mermaid">
+flowchart LR
+  subgraph ANDROID["Android · Kotlin"]
+    AHost["MainActivity\nsettings + usage"]
+    AIme["LiveTypeImeService\nInputMethodService + keyboard"]
+    AAudio["PcmAudioRecorder.kt\nAudioRecord + PCM"]
+    ANet["TokenProvider\nRealtimeTranscriber\nUsageReporter"]
+    AConfig["AppSettings\nEndpointMode · RecordingLimit\nFeatureFlags · MoneyFormat"]
+    ABuild["Gradle + AndroidManifest\nBuildConfig · adb reverse"]
+    AE2E["debug-only E2eActivity\nfocused EditText host"]
+    AHost --> AConfig
+    AIme --> AConfig
+    AIme --> AAudio --> ANet
+    ABuild -. "debug / release config" .-> AConfig
+    AE2E -. "QA host" .-> AIme
+  end
+
+  subgraph IOS["iOS · Swift"]
+    IHost["LiveTypeApp + SettingsView\nSwiftUI host"]
+    IKeyboard["KeyboardViewController\nUIInputViewController extension"]
+    IAudio["PcmAudioRecorder.swift\nAVAudioEngine + converter"]
+    INet["TokenProvider\nRealtimeTranscriber\nUsageReporter"]
+    IShared["ios/Shared/*.swift\ncompiled into host + extension"]
+    IPlatform["Xcode · App Group\nFull Access · entitlements"]
+    IHost --> IShared
+    IKeyboard --> IShared
+    IKeyboard --> IAudio --> INet
+    IHost --> INet
+    IPlatform -. "signing + shared UserDefaults" .-> IShared
+  end
+
+  subgraph COMMON["Общее поведение и wire-контракт\nне общий Kotlin/Swift source"]
+    Contract["Worker contract\nPOST /token · POST /usage · GET /usage\nRealtime session.update / events"]
+    Worker["Cloudflare Worker\nclient secret · model · pricing · D1"]
+    OpenAI["OpenAI Realtime API\nclient_secrets + audio WebSocket"]
+  end
+
+  subgraph QA["Headless QA"]
+    Runner["scripts/simulators-e2e.sh\nAndroid AVD + iOS Simulator"]
+    Double["scripts/e2e-fake-server.mjs\nHTTP + WebSocket protocol double"]
+    Progress["progress.json + progress viewer\nappend-only history"]
+    Runner --> Double
+    Runner --> Progress
+  end
+
+  ANet -->|"token + usage HTTP"| Contract
+  INet -->|"token + usage HTTP"| Contract
+  Contract --> Worker
+  Worker -->|"ephemeral token only"| OpenAI
+  ANet ==>|"audio / transcript WebSocket\ndirect to OpenAI"| OpenAI
+  INet ==>|"audio / transcript WebSocket\ndirect to OpenAI"| OpenAI
+  Double -. "same client contract" .-> Contract
+  Runner -. "build + drive" .-> AE2E
+  Runner -. "build + launch" .-> IHost
+
+  classDef android fill:#102b42,stroke:#69b7ff,color:#e7f5ff,stroke-width:2px;
+  classDef ios fill:#281d42,stroke:#bf9bff,color:#f5efff,stroke-width:2px;
+  classDef shared fill:#12372e,stroke:#47d7a0,color:#eafff7,stroke-width:2px;
+  classDef qa fill:#3c2b15,stroke:#f5bd68,color:#fff3dc,stroke-width:2px;
+  class AHost,AIme,AAudio,ANet,AConfig,ABuild,AE2E android;
+  class IHost,IKeyboard,IAudio,INet,IShared,IPlatform ios;
+  class Contract,Worker,OpenAI shared;
+  class Runner,Double,Progress qa;
+  style ANDROID fill:#0c1b29,stroke:#2c638e,stroke-width:2px;
+  style IOS fill:#1b122c,stroke:#7650a8,stroke-width:2px;
+  style COMMON fill:#0b211b,stroke:#2c8e70,stroke-width:2px;
+  style QA fill:#2b1d0c,stroke:#a56d27,stroke-width:2px;
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Где именно переиспользуется код</h2>
+      <div class="grid">
+        <article class="column shared">
+          <h3>Общее между Android и iOS</h3>
+          <ul>
+            <li>Worker API: <code>/token</code>, <code>/usage</code>, device-secret auth.</li>
+            <li>OpenAI Realtime wire rules: bare WebSocket URL, session update, transcript and usage events.</li>
+            <li>Модель, цены, billing and D1 — только Worker.</li>
+            <li>Локальный protocol double и headless E2E runner.</li>
+          </ul>
+        </article>
+        <article class="column android">
+          <h3>Уникально для Android</h3>
+          <ul>
+            <li>Kotlin <code>InputMethodService</code> и собственный keyboard view.</li>
+            <li><code>AudioRecord</code> для PCM-захвата.</li>
+            <li><code>SharedPreferences</code>, Android permissions и manifest.</li>
+            <li>Gradle <code>BuildConfig</code>, <code>adb reverse</code>, Android AVD.</li>
+            <li>Composing text, cursor actions, paste and word-delete через <code>InputConnection</code>.</li>
+          </ul>
+        </article>
+        <article class="column ios">
+          <h3>Уникально для iOS</h3>
+          <ul>
+            <li>SwiftUI host app + <code>UIInputViewController</code> keyboard extension.</li>
+            <li><code>AVAudioEngine</code> и <code>AVAudioConverter</code>.</li>
+            <li>App Group <code>UserDefaults</code> между host и extension.</li>
+            <li>Full Access, iOS keyboard settings, Xcode signing and entitlements.</li>
+            <li><code>textDocumentProxy.insertText</code>: нет Android-style composing region.</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+
+    <section class="diagram-card">
+      <h2>Зеркальные реализации</h2>
+      <table class="mapping">
+        <thead>
+          <tr><th>Ответственность</th><th>Android</th><th>iOS</th><th>Что действительно общее</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Настройки</td><td><code>config/AppSettings.kt</code><br><code>SharedPreferences</code></td><td><code>Shared/Settings.swift</code><br>App Group <code>UserDefaults</code></td><td>Имена полей, defaults-only semantics, endpoint derivation</td></tr>
+          <tr><td>Token / usage</td><td><code>network/TokenProvider.kt</code><br><code>UsageReporter.kt</code></td><td><code>Shared/TokenProvider.swift</code><br><code>UsageReporter.swift</code></td><td>HTTP shape, auth header, server-owned pricing</td></tr>
+          <tr><td>Realtime</td><td><code>network/RealtimeTranscriber.kt</code></td><td><code>Shared/RealtimeTranscriber.swift</code></td><td>Events, audio format, session rules, transcript semantics</td></tr>
+          <tr><td>Audio</td><td><code>audio/PcmAudioRecorder.kt</code><br><code>AudioRecord</code></td><td><code>Shared/PcmAudioRecorder.swift</code><br><code>AVAudioEngine</code></td><td>24 kHz mono PCM chunks delivered to transcriber</td></tr>
+          <tr><td>Keyboard lifecycle</td><td><code>LiveTypeImeService.kt</code></td><td><code>KeyboardViewController.swift</code></td><td>Start → stream → commit → report usage → finish</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <div class="note"><strong>Главный вывод.</strong> Переиспользуется не UI и не системный keyboard code, а договорённость: какие hints отправить Worker, как получить ephemeral token, как открыть Realtime session и как отправить raw usage. Поэтому баг в wire-контракте может затронуть обе платформы, а баг в IME/keyboard sandbox — только одну.</div>
+    <footer>Source of truth: <a href="ARCHITECTURE.md">ARCHITECTURE.md</a>, <a href="QA.md">QA.md</a>, <a href="ios/IOS_BUILD.md">ios/IOS_BUILD.md</a>. Diagram is rendered by Mermaid from the CDN; the page is otherwise local.</footer>
+  </main>
+  <script>
+    mermaid.initialize({
+      startOnLoad: true,
+      securityLevel: "loose",
+      theme: "base",
+      themeVariables: { background: "#0b1114", primaryTextColor: "#e7f0f2", lineColor: "#9bb0b6", tertiaryColor: "#17252b", fontFamily: "Inter, system-ui, sans-serif" },
+      flowchart: { curve: "basis", htmlLabels: true, padding: 18, nodeSpacing: 34, rankSpacing: 58 }
+    });
+  </script>
+</body>
+</html>

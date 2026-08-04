@@ -55,6 +55,11 @@ model. Hints are trimmed, de-duplicated and clamped (8 languages, 100 keywords,
 
 ### Repository layout
 
+The interactive architecture map is available at
+[`architecture.html`](architecture.html). It renders a Mermaid diagram showing
+which parts are shared by contract and which parts are implemented separately
+for Android and iOS.
+
 | Path | What it is |
 |---|---|
 | `android/` | The Kotlin IME. No Compose, no AndroidX — plain views, one dependency (OkHttp). |

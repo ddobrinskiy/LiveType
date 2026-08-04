@@ -8,67 +8,51 @@ here instead, and work through the list periodically.
 bold. Resolved items move to the bottom with the decision and its date, they are
 not deleted — a decision is worth more than the absence of a question.
 
-Last updated: 2026-08-01.
+Last updated: 2026-08-04.
 
 ---
 
 ## A. Needs your decision
 
-### A1 — Deploy the Worker to Cloudflare *(raised 2026-08-01; decided yes, now blocked on you)*
-**Two things in your Cloudflare account need you before the deploy can finish.**
+### A1 — Your phone is the device `default`, not `david` *(raised 2026-08-04)*
+**Cosmetic, and it costs something to change.** Per-device metering is live and
+your phone authenticates with the existing `DEVICE_SECRET`, which makes its
+device id `default` — that is also the id on all 32 rows of earlier history, and
+it is the id `OWNER_DEVICE_ID` names, so you see the full breakdown.
 
-The decision is made and the code side is done. The attempt on 2026-08-01 got as
-far as the database and then hit two account-level gates, neither of which an
-assistant can or should clear:
+Renaming it to `david` means putting your current secret value into
+`DEVICE_SECRETS` and deleting `DEVICE_SECRET`, and those are two separate
+`wrangler secret put` calls: in between, the worker sees the same secret under two
+ids and returns `500` on every route until the second call lands — roughly a
+minute, given secrets take ~30 s to propagate. The alternative is a fresh secret
+for `david`, which means re-typing it on your phone. Neither is worth an outage
+for a label, so it is left as is. Say the word if you want it.
 
-1. **Verify the account's email address** (`cf@dobrinskiy.me`). Until you do,
-   *every* write to a Worker script returns
-   `10034 — You need to verify your email address to use Workers`. This is what
-   stopped `wrangler secret put`, and it would equally stop `wrangler deploy`.
-   Cloudflare will have sent a verification mail; there is also a resend button
-   in the dashboard.
-   <https://developers.cloudflare.com/fundamentals/setup/account/verify-email-address/>
-2. **Let a `workers.dev` subdomain be created.** The account has none
-   (`GET /workers/subdomain` → `10007`), so `wrangler deploy` has nowhere to
-   publish and stops before uploading anything. Opening **Workers & Pages** in
-   the dashboard once creates it; wrangler also offers to register one
-   interactively. I deliberately did not pick a name — the subdomain is
-   permanent, account-wide and ends up in the URL your phone points at.
-
-Once both are done the rest is three commands in `worker/`, and everything they
-need is already in place:
-
-```bash
-npx wrangler secret put OPENAI_API_KEY   # value from worker/.dev.vars
-npx wrangler secret put DEVICE_SECRET    # value from worker/.dev.vars
-npx wrangler deploy
-```
-
-Then `EndpointMode.PROD_ENDPOINT` gets the resulting
-`https://livetype-token.<your-subdomain>.workers.dev/token`, which is what makes
-the prod row in the settings dropdown selectable. It is still `""` today, so the
-row is correctly greyed out.
-
-Free tier covers this easily — one request per dictation session against a
-100k/day allowance. Rate limiting was considered and deliberately deferred; see
-R8, and note the endpoint goes public the moment this clears.
-
-### A2 — Provision a remote D1? *(raised 2026-08-01)* — **resolved, see R13**
-
-### B1 — A quarter of the feature list is still unverified on the device
-23 of 44 rows in `QA.md` are user-confirmed and 11 more are closed as
-tool-verified; the rest have only been compiled. Parallel agents were forbidden
-from touching the phone, so much of the UI went straight into a merge.
+### B1 — A third of the feature list is unverified on the device
+24 of 54 rows in `QA.md` are user-confirmed and 12 more are closed as
+tool-verified; the rest have only been compiled. Much of the UI reached `main`
+without anyone looking at it on a phone.
 
 ### B2 — Long silence may end the turn server-side
 When another app takes the microphone mid-dictation we now show it honestly, but
 OpenAI's own logic may close the turn during the silent gap regardless. Untested,
 and nothing in our UI would currently reveal it.
 
-### B6 — Billing is a spend meter, not an audit
+### B6 — Billing is a spend meter, not an audit, and the cap inherits that
 Figures come from usage OpenAI reports to the phone, which the phone forwards.
 A session lost to a dead network under-counts. It will not match an invoice to
 the cent.
+
+The daily cap (R19) is enforced against this same meter, so a device whose usage
+reports are being lost — dead network, force-stopped app — under-counts against
+its own cap and can spend past it. The cap bounds *reported* spend; the OpenAI
+project budget remains the only hard ceiling.
+
+### B10 — The per-device billing UI has never been seen on a phone *(raised 2026-08-04)*
+The new device line, cap line and per-device breakdown compile and their worker
+side is covered by tests, but nothing has rendered on a device. Worth a look at
+whether the breakdown reads sensibly once it has two real devices in it, and
+whether the cap line wraps badly in Russian.
 
 ### B8 — The indicator tap now uses a popup, not a `Toast` *(raised 2026-08-01)*
 **You can have the `Toast` back, but it will not be visible.** Tapping an
@@ -122,4 +106,8 @@ none. Not yet observed; the 5-minute idle ceiling only bounds *unused* sessions.
 | R15 | Should a Cancel pressed after the stop square be billed? | **Yes, keep reporting it.** The commit has already reached OpenAI and is charged whatever the app does next, and the user wants the ledger to show real spend rather than what the app chose to keep. | 2026-08-01 |
 | R16 | Restore the Russian dictation prompt? | **No.** The English default says the same thing; not worth the manual typing. | 2026-08-01 |
 | R17 | OpenAI returns `403 unsupported_country` from Russia — work around it? | **No, accept it.** A VPN on the phone fixes both affected legs at no cost in code. Smart Placement would only fix the token call, leaving the WebSocket — which leaves the phone directly — still blocked, i.e. a confusingly half-working state. Proxying audio through the Worker would work but reverses the project's central architectural decision for the sake of a geography workaround. See ARCHITECTURE §3.8.1. | 2026-08-01 |
+| R18 | How should a second person (your mother) use your Worker with spend tracked per device? | **One secret per device, and the Worker decides which device you are.** `DEVICE_SECRETS` maps device id → secret; the id whose secret matched is what lands in `usage_events.device_id`, so identity is never self-reported — the same rule as model choice. `DEVICE_SECRET` still works as the id `default`, which is also what migration `0002` backfills onto existing rows, so your phone and the dev loop were untouched. Rejected: one shared secret plus a device-supplied id (unrevocable, self-reported), and HMAC-derived credentials (buys nothing at two devices, and a leaked master mints any identity). Each device sees only its own spend; `OWNER_DEVICE_ID` also sees a per-device breakdown that keeps a revoked device's history. See ARCHITECTURE §3.14. | 2026-08-04 |
+| R19 | Enforce a hard per-device spend limit, or only report? | **Enforce, at `/token`, as a daily allowance.** `DEVICE_CAPS` maps device id → USD **per day** (mom: $1); a device that has spent today's allowance gets `402` and the keyboard says so in its own language. `/token` is the only place spending can be *prevented* rather than recorded — no token, no session, no charge. Accepted cost: one D1 read on the latency path, paid **only by capped devices**, so the owner's uncapped phone is unaffected. Fails closed if the ledger cannot be read. The day boundary is `CAP_TZ_OFFSET_MINUTES` on the server, deliberately **not** the offset the phone sends: a device that chose its own boundary could shift the window and grant itself a fresh allowance. Not a rate limiter — see ARCHITECTURE §5.1, and B6 for what a lost usage report does to a cap. | 2026-08-04 |
+| R20 | Deploy the Worker to Cloudflare? | **Yes, done.** Live in the `cf@dobrinskiy.me` account with `OPENAI_API_KEY` and `DEVICE_SECRET` in its secret store, bound to the remote `livetype-usage` D1. The URL is kept out of this public repo — it lives in `worker/.dev.vars` as `PROD_TOKEN_ENDPOINT`, which debug builds bake into `EndpointMode.PROD`. Two account-level gates had to be cleared first and will bite anyone repeating this on a fresh account: a verified account email (else `10034` on every Worker write) and a registered `workers.dev` subdomain (else `10007` on deploy). | 2026-08-04 |
+| R21 | Deploy per-device secrets and the daily cap? | **Done 2026-08-04, with no interruption.** Order that avoided any outage: migrate the remote D1 first (the old code's `INSERT` omits `device_id`, so the column default covers it), then deploy the new code (the legacy `DEVICE_SECRET` keeps working as `default`), then add `DEVICE_SECRETS`, `OWNER_DEVICE_ID` and `DEVICE_CAPS` one at a time — every intermediate state is a valid configuration. Verified live: 32 rows of history backfilled to `default`; mom's phone sees only its own spend and its $1/day cap; the owner sees both devices; `POST /usage` from mom stamped `device_id: "mom"` while ignoring a `"device_id":"default"` planted in the body; `402` confirmed by temporarily setting mom's cap to `0`. | 2026-08-04 |
 | R7 | Should Paste also copy to the system clipboard? | **No.** The last phrase lives in app memory for five minutes and is inserted from there. The system clipboard is readable by every app — a materially weaker privacy posture, and inconsistent with "LiveType keeps no dictation history". | 2026-08-01 |

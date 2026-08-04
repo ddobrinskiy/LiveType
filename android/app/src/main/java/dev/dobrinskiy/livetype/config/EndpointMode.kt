@@ -11,7 +11,7 @@ import dev.dobrinskiy.livetype.BuildConfig
  * worker without retyping a URL.
  */
 enum class EndpointMode {
-    /** A deployed Cloudflare Worker. No URL exists yet — see [isAvailable]. */
+    /** A deployed Cloudflare Worker. Selectable only once [PROD_ENDPOINT] is set. */
     PROD,
 
     /** `wrangler dev` on the laptop, reached over `adb reverse`. */

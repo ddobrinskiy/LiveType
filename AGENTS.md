@@ -215,6 +215,21 @@ cd android && ./gradlew assembleDebug
 `.github/workflows/ci.yml` runs exactly those two on push to `main` and on every
 pull request. Nothing in CI needs secrets, and CI never touches a device.
 
+**`gh` defaults to the wrong account here.** Two accounts are logged in and the
+*work* one (`ddobrinskiy-top`) is usually active, while this repository belongs to
+the personal one (`ddobrinskiy`). Any write — `gh release create` above all — then
+fails with `"workflow" scope may be required`, which is a misleading hint: the
+scope is fine, the account simply has no write access. Check with
+`gh auth status`, and switch for the duration:
+
+```bash
+gh auth switch -u ddobrinskiy -h github.com
+# ... do the write ...
+gh auth switch -u ddobrinskiy-top -h github.com
+```
+
+`git push` is unaffected: it goes over SSH, not through `gh`.
+
 The worker suite boots a real `workerd` through **miniflare** to get a real
 in-memory D1 for the billing tests — the SQL, the `INSERT OR IGNORE`
 idempotency and the aggregate queries are exercised for real, not stubbed. That

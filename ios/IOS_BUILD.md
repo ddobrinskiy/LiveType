@@ -311,6 +311,21 @@ app and the embedded keyboard extension against the `iphoneos` SDK
   because `DEVELOPMENT_TEAM` is empty. A signed device build still needs the
   account owner's team and provisioning profile.
 
+### Physical-device testing is paused *(2026-08-04)*
+
+The iPhone was connected over USB, paired with Xcode, and Developer Mode was
+enabled. An attempt to run the Debug build through a free Personal Team stopped
+at signing: both `LiveType` and `LiveTypeKeyboard` report that a development
+team must be selected. The current full configuration also uses the App Group
+`group.dev.dobrinskiy.livetype`, which requires a team/profile that can provision
+App Groups.
+
+We are waiting for a Developer account/team that can sign both targets. Until
+then, the real-device path is not considered tested; only the compile-only
+`iphoneos` build and the headless simulator validation are verified. Once the
+team is available, set it in **Signing & Capabilities** for both targets and
+follow the device steps below.
+
 ### Headless end-to-end validation
 
 From the repository root:
@@ -395,7 +410,7 @@ physical device.
 open ios/LiveType.xcodeproj
 ```
 
-### Install on a device later
+### Install on a device later *(after a Developer account/team is available)*
 
 1. Use a team that can provision App Groups, then set its **Development Team**
    in both targets' Signing & Capabilities. Register/enable

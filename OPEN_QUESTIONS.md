@@ -48,11 +48,13 @@ reports are being lost — dead network, force-stopped app — under-counts agai
 its own cap and can spend past it. The cap bounds *reported* spend; the OpenAI
 project budget remains the only hard ceiling.
 
-### B10 — The per-device billing UI has never been seen on a phone *(raised 2026-08-04)*
-The new device line, cap line and per-device breakdown compile and their worker
-side is covered by tests, but nothing has rendered on a device. Worth a look at
-whether the breakdown reads sensibly once it has two real devices in it, and
-whether the cap line wraps badly in Russian.
+### B10 — Half the per-device billing UI has still not rendered *(raised 2026-08-04)*
+The device line is confirmed on a Pixel 9 — it read `This device: default` and
+was what explained the amounts dropping to $0.00 after the rename. Still unseen:
+the cap line (needs a capped device, and the owner's phone is uncapped by
+design) and the per-device table (needs the phone to be authenticating as the
+owner). Worth checking whether the Russian cap line wraps badly, since it is two
+sentences on one label.
 
 ### B8 — The indicator tap now uses a popup, not a `Toast` *(raised 2026-08-01)*
 **You can have the `Toast` back, but it will not be visible.** Tapping an

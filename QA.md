@@ -23,14 +23,15 @@ Legend: `yes` · `no` · `partial` · `—` (not applicable)
 Last updated: 2026-08-04.
 ## Headless simulator E2E (assistant-verified)
 
-Run `simulators-20260804T140621Z` passed end to end on 2026-08-04. The
+Run `simulators-20260804T144247Z` passed end to end after merge commit
+`8f5ca5d` on 2026-08-04. The
 workflow used only the headless Android AVD `emulator-5554` and an iOS 26.4
 Simulator; it did not address the connected physical Android device.
 
 | Platform | What was verified | Evidence |
 |---|---|---|
 | Android | APK built with the E2E endpoint, the real LiveType IME appeared in a focused editor, the first tap entered the visible recording state, the automated stop produced `ws_commit`, the usage POST arrived, and `Hello from LiveType` was inserted into the editor | `artifacts/e2e/android/keyboard-before.png`, `keyboard-recording.png`, `keyboard-stop-5.png`, `keyboard-after.png`, `window-after.xml`, `fake-server.log` |
-| iOS | Host app plus embedded keyboard extension built for both `iphonesimulator` and `iphoneos`, installed in the simulator, and the headless QA host completed token and usage calls with green PASS checkmarks for Settings defaults, Token provider, Usage renderer, plus the Ready keyboard preview | `artifacts/e2e/ios/build.log`, `device-target-build.log`, `launch.log`, `e2e.png`, `fake-server.log` |
+| iOS | Host app plus embedded keyboard extension built and installed in the simulator, and the headless QA host completed token and usage calls with green PASS checkmarks for Settings defaults, Token provider, Usage renderer, plus the Ready keyboard preview; a separate post-merge generic `iphoneos` compile also succeeded without signing or device installation | `artifacts/e2e/ios/build.log`, `device-target-build.log`, `launch.log`, `e2e.png`, `fake-server.log` |
 
 Frontend screenshots were inspected after the pass. Android visibly showed the
 Ready, recording, and completed states, with the final editor text. iOS visibly
@@ -39,8 +40,8 @@ state. The progress viewer was separately rendered in headless Chromium: its
 history is newest-first in shared/iOS/Android sections, and its collapse arrows
 sit immediately beside the section labels.
 
-The Worker contract suite was also restored and run locally: `cd worker && npm test`
-passed all 55 Miniflare-backed tests.
+The Worker contract suite was also run after the merge: `cd worker && npm test`
+passed all 89 Miniflare-backed tests.
 The iOS Simulator has no public `simctl` command for enabling a third-party
 keyboard, so this pass validates the installed extension binary and its shared
 host/protocol harness, not Settings-driven keyboard activation.

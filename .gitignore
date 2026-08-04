@@ -35,6 +35,8 @@ artifacts/
 # IDE / OS
 .idea/
 *.iml
+**/xcuserdata/
+*.xcuserstate
 .DS_Store
 
 # Git worktrees created inside the repo (see `git worktree list`).

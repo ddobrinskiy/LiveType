@@ -417,8 +417,9 @@ open ios/LiveType.xcodeproj
 
 Honest read of the tree as of 2026-08-04:
 
-**Latest live run status:** `simulators-20260804T140621Z` passed both headless
-platform flows. Android passed the real IME dictation path through the local
+**Latest live run status:** `simulators-20260804T144247Z` passed both headless
+platform flows after merge commit `8f5ca5d`. Android passed the real IME
+dictation path through the local
 protocol double, including the prewarm handshake, visible recording state,
 automatic stop, `ws_commit`, usage POST, and `Hello from LiveType` in the
 focused editor. iOS built and installed the host app plus keyboard extension,
@@ -455,10 +456,12 @@ is under `artifacts/e2e/`.
   drives the QA host screen against the same double. The definitive pass and
   screenshots are recorded in `QA.md` and `artifacts/e2e/`. iOS keyboard
   activation through the Settings UI remains outside the public `simctl` API.
-- **Worker contract tests are green**: after restoring the declared local
-  dependencies, `cd worker && npm test` passed all 55 Miniflare-backed tests. The
-  simulator runner still uses its deterministic local protocol double so the
-  client E2E remains offline from OpenAI and does not need a deployed Worker.
+- **Worker contract tests are green**: after the merge, `cd worker && npm test`
+  passed all 89 Miniflare-backed tests. A post-merge generic `iphoneos`
+  compile-only build also passed with `CODE_SIGNING_ALLOWED=NO`; it did not
+  install or contact the connected iPhone. The simulator runner still uses its
+  deterministic local protocol double so the client E2E remains offline from
+  OpenAI and does not need a deployed Worker.
 
 ---
 

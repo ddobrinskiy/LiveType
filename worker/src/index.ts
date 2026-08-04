@@ -1,6 +1,41 @@
 export interface Env {
   OPENAI_API_KEY: string;
-  DEVICE_SECRET: string;
+  /**
+   * A single shared secret, which authenticates as the device id "default" — the
+   * same id `0002`'s column default gives rows written before that column
+   * existed. A one-phone install needs only this.
+   */
+  DEVICE_SECRET?: string;
+  /**
+   * JSON object of device id -> secret, e.g. `{"david":"…","mom":"…"}`. This is
+   * how a second person gets access without holding the owner's secret, and how
+   * the ledger learns whose spend a row is. Ids match DEVICE_ID_PATTERN.
+   *
+   * Adding or revoking a device is one `wrangler secret put DEVICE_SECRETS`; no
+   * code change and no schema change is involved.
+   */
+  DEVICE_SECRETS?: string;
+  /**
+   * Which device id may read the per-device breakdown from `GET /usage`.
+   * Defaults to "default" when that device exists, otherwise to nobody.
+   */
+  OWNER_DEVICE_ID?: string;
+  /**
+   * JSON object of device id -> **daily** spend cap in USD, e.g. `{"mom":1}`. A
+   * device with no entry here is uncapped. Enforced by `POST /token`, which is
+   * the only place spending can be prevented rather than merely recorded.
+   */
+  DEVICE_CAPS?: string;
+  /**
+   * Which timezone the cap's day boundary follows, as minutes to add to UTC
+   * (Moscow `180`). Defaults to UTC.
+   *
+   * Deliberately a server-side setting rather than the `tz_offset_minutes` the
+   * phone sends to `GET /usage`: a device that could choose its own day boundary
+   * could shift the window and hand itself a fresh allowance, which is exactly
+   * the leverage over cost that §3.2 keeps away from the device.
+   */
+  CAP_TZ_OFFSET_MINUTES?: string;
   /** Optional override; must be a key of SUPPORTED_MODELS. */
   TRANSCRIPTION_MODEL?: string;
   /** Usage ledger. Schema lives in worker/migrations/. */
@@ -420,19 +455,208 @@ function jsonResponse(body: unknown, status: number): Response {
   });
 }
 
+/* ---------------------------------------------------------------- devices */
+
+/** The device id the original single `DEVICE_SECRET` authenticates as. */
+const LEGACY_DEVICE_ID = "default";
+
+/**
+ * Device ids are lowercase and boring on purpose: they go into the ledger, into
+ * a JSON response and into the billing screen, and they are typed by hand into
+ * a `wrangler secret put` payload.
+ */
+const DEVICE_ID_PATTERN = /^[a-z0-9_-]{1,32}$/;
+
+/** `openssl rand -hex 16` clears this comfortably. */
+const MIN_DEVICE_SECRET_CHARS = 24;
+
+/**
+ * secureEquals refuses anything longer than this, so a longer configured secret
+ * could never match and the device would be locked out with no explanation.
+ * Rejecting it at parse time turns that into a loud misconfiguration instead.
+ */
+const MAX_DEVICE_SECRET_CHARS = 512;
+
+/** Sanity bound. A cap this size is a typo, not a budget. */
+const MAX_CAP_USD = 10_000;
+
+/** Device id -> secret. */
+export type DeviceRegistry = ReadonlyMap<string, string>;
+
+/** Device id -> daily cap in integer micro-USD. Absent means uncapped. */
+export type CapRegistry = ReadonlyMap<string, number>;
+
+export interface DeviceConfig {
+  devices: DeviceRegistry;
+  caps: CapRegistry;
+  /** Who may see every device's spend. Null when no owner is identifiable. */
+  ownerDeviceId: string | null;
+  /** Minutes to add to UTC to find the cap's day boundary. */
+  capTzOffsetMinutes: number;
+}
+
+export type DeviceConfigResult =
+  | { ok: true; config: DeviceConfig }
+  | { ok: false; error: string };
+
+/**
+ * Reads the whole device half of the configuration in one go, and refuses to
+ * return a partially-understood version of it.
+ *
+ * Every rejection here surfaces as a 500 "Worker is misconfigured" on every
+ * route, exactly as a bad TRANSCRIPTION_MODEL already does. That is deliberate:
+ * the failure this must never have is a typo that silently leaves a device
+ * uncapped or unauthenticated. A worker that is loudly down is recoverable with
+ * one `wrangler secret put`; money spent under a cap that was quietly ignored is
+ * not.
+ *
+ * Note what is *not* an error: no configured secrets at all. That yields an
+ * empty registry, which matches nothing, so every request gets a 401 — the same
+ * fail-closed behaviour a blank DEVICE_SECRET has always had.
+ */
+export function parseDeviceConfig(env: Env): DeviceConfigResult {
+  const devices = new Map<string, string>();
+
+  const raw = env.DEVICE_SECRETS?.trim();
+  if (raw) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      return { ok: false, error: "DEVICE_SECRETS is not valid JSON" };
+    }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return { ok: false, error: "DEVICE_SECRETS must be a JSON object" };
+    }
+    for (const [id, secret] of Object.entries(parsed as Record<string, unknown>)) {
+      if (!DEVICE_ID_PATTERN.test(id)) {
+        return { ok: false, error: `DEVICE_SECRETS has an invalid device id` };
+      }
+      if (
+        typeof secret !== "string" ||
+        secret.length < MIN_DEVICE_SECRET_CHARS ||
+        secret.length > MAX_DEVICE_SECRET_CHARS
+      ) {
+        return { ok: false, error: `Device "${id}" has an unusable secret` };
+      }
+      devices.set(id, secret);
+    }
+  }
+
+  // Deliberately not length-checked: this secret predates the rule and is
+  // already deployed. Enforcing MIN_DEVICE_SECRET_CHARS on it could lock the
+  // owner out of their own worker on the deploy that introduced the check.
+  const legacy = env.DEVICE_SECRET ?? "";
+  if (legacy.trim().length > 0) {
+    if (devices.has(LEGACY_DEVICE_ID)) {
+      return {
+        ok: false,
+        error: `DEVICE_SECRET and DEVICE_SECRETS both define "${LEGACY_DEVICE_ID}"`,
+      };
+    }
+    devices.set(LEGACY_DEVICE_ID, legacy);
+  }
+
+  // Two devices sharing a secret would make the ledger's device_id a coin flip
+  // (the loop below has no way to tell them apart), which is worse than useless.
+  // The message names no id: which pair collided is not worth leaking.
+  const secrets = new Set<string>();
+  for (const secret of devices.values()) {
+    if (secrets.has(secret)) {
+      return { ok: false, error: "Two devices are configured with the same secret" };
+    }
+    secrets.add(secret);
+  }
+
+  const caps = new Map<string, number>();
+  const rawCaps = env.DEVICE_CAPS?.trim();
+  if (rawCaps) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(rawCaps);
+    } catch {
+      return { ok: false, error: "DEVICE_CAPS is not valid JSON" };
+    }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return { ok: false, error: "DEVICE_CAPS must be a JSON object" };
+    }
+    for (const [id, value] of Object.entries(parsed as Record<string, unknown>)) {
+      // A cap naming a device that cannot authenticate is a typo, and the typo
+      // that costs money is the mirror of it — the device whose cap you meant to
+      // write and misspelled is uncapped. So this fails rather than warns, which
+      // means removing a device means removing its cap in the same breath.
+      if (!devices.has(id)) {
+        return { ok: false, error: `DEVICE_CAPS names an unknown device "${id}"` };
+      }
+      if (
+        typeof value !== "number" ||
+        !Number.isFinite(value) ||
+        value < 0 ||
+        value > MAX_CAP_USD
+      ) {
+        return { ok: false, error: `Device "${id}" has an invalid cap` };
+      }
+      caps.set(id, Math.round(value * 1_000_000));
+    }
+  }
+
+  const configuredOwner = env.OWNER_DEVICE_ID?.trim();
+  let ownerDeviceId: string | null;
+  if (configuredOwner) {
+    // Explicitly named and absent is a typo worth shouting about: it would
+    // silently leave nobody able to see the breakdown.
+    if (!devices.has(configuredOwner)) {
+      return { ok: false, error: `OWNER_DEVICE_ID names an unknown device` };
+    }
+    ownerDeviceId = configuredOwner;
+  } else {
+    // Unset falls back to the legacy device *if it exists*. Defaulting to the
+    // string "default" unconditionally would 500 every install that has moved
+    // entirely to named secrets.
+    ownerDeviceId = devices.has(LEGACY_DEVICE_ID) ? LEGACY_DEVICE_ID : null;
+  }
+
+  // Reuses the query-parameter rule: unparseable or out of range falls back to
+  // UTC rather than failing, because a wrong day boundary still caps spend
+  // while a dead worker stops the owner dictating.
+  const capTzOffsetMinutes = resolveTzOffsetMinutes(
+    env.CAP_TZ_OFFSET_MINUTES ?? null,
+  );
+
+  return {
+    ok: true,
+    config: { devices, caps, ownerDeviceId, capTzOffsetMinutes },
+  };
+}
+
+export type AuthOutcome =
+  | { ok: true; deviceId: string }
+  | { ok: false; reason: "unauthorized" };
+
 /**
  * The single device check. Every route uses this one — /usage must never grow
  * its own copy that drifts from /token's.
+ *
+ * Returns *which* device authenticated, because that identity is the only
+ * trustworthy source for the ledger's device_id and for the cap lookup.
  */
-async function deviceIsAuthorised(
+export async function authoriseDevice(
   request: Request,
-  env: Env,
-): Promise<boolean> {
-  if (!env.DEVICE_SECRET) return false;
-  return secureEquals(
-    request.headers.get("X-Device-Secret"),
-    env.DEVICE_SECRET,
-  );
+  config: DeviceConfig,
+): Promise<AuthOutcome> {
+  const supplied = request.headers.get("X-Device-Secret");
+
+  // Every entry is compared and the loop does not break early, so its cost does
+  // not depend on which device matched. secureEquals already compares SHA-256
+  // digests rather than the secrets themselves.
+  let deviceId: string | null = null;
+  for (const [id, secret] of config.devices) {
+    if (await secureEquals(supplied, secret)) deviceId = id;
+  }
+
+  return deviceId === null
+    ? { ok: false, reason: "unauthorized" }
+    : { ok: true, deviceId };
 }
 
 const UNAUTHORIZED = { error: "Unauthorized" };
@@ -448,7 +672,21 @@ const WINDOW_SQL = `SELECT COALESCE(SUM(billable_seconds), 0) AS seconds,
        COALESCE(SUM(usd_nanos), 0)       AS nanos,
        COUNT(*)                          AS sessions
   FROM usage_events
- WHERE created_at_ms >= ?1 AND created_at_ms <= ?2`;
+ WHERE device_id = ?1 AND created_at_ms >= ?2 AND created_at_ms <= ?3`;
+
+/** The same three windows, every device at once. Owner's view only. */
+const BREAKDOWN_SQL = `SELECT device_id,
+       COALESCE(SUM(billable_seconds), 0) AS seconds,
+       COALESCE(SUM(usd_nanos), 0)        AS nanos,
+       COUNT(*)                           AS sessions
+  FROM usage_events
+ WHERE created_at_ms >= ?1 AND created_at_ms <= ?2
+ GROUP BY device_id`;
+
+/** One device's spend since an instant. Backs the daily cap check. */
+const DEVICE_SPEND_SQL = `SELECT COALESCE(SUM(usd_nanos), 0) AS nanos
+  FROM usage_events
+ WHERE device_id = ?1 AND created_at_ms >= ?2`;
 
 function windowSummary(row: WindowRow | null) {
   const nanos = row?.nanos ?? 0;
@@ -461,10 +699,65 @@ function windowSummary(row: WindowRow | null) {
   };
 }
 
-async function handleUsagePost(request: Request, env: Env): Promise<Response> {
-  if (!(await deviceIsAuthorised(request, env))) {
-    return jsonResponse(UNAUTHORIZED, 401);
+export interface CapState {
+  capMicros: number;
+  spentMicros: number;
+  tzOffsetMinutes: number;
+}
+
+/**
+ * Today's spend for one device, or null if the ledger could not be read.
+ *
+ * Null is never treated as zero by callers: a cap that evaporates when D1
+ * hiccups is not a cap. Only devices that actually have a cap ever reach this
+ * function, so an uncapped device — the owner's own phone — pays neither the
+ * latency nor the failure mode.
+ */
+async function readCapState(
+  db: D1Database,
+  deviceId: string,
+  capMicros: number,
+  nowMs: number,
+  tzOffsetMinutes: number,
+): Promise<CapState | null> {
+  try {
+    const row = await db
+      .prepare(DEVICE_SPEND_SQL)
+      .bind(deviceId, localDayStartMs(nowMs, tzOffsetMinutes))
+      .first<{ nanos: number }>();
+    return {
+      capMicros,
+      spentMicros: Math.round((row?.nanos ?? 0) / 1000),
+      tzOffsetMinutes,
+    };
+  } catch {
+    return null;
   }
+}
+
+function capSummary(state: CapState) {
+  const remaining = Math.max(0, state.capMicros - state.spentMicros);
+  return {
+    usd: state.capMicros / 1_000_000,
+    usd_micros: state.capMicros,
+    spent_usd: state.spentMicros / 1_000_000,
+    spent_usd_micros: state.spentMicros,
+    remaining_usd: remaining / 1_000_000,
+    remaining_usd_micros: remaining,
+    // The period is named, and its boundary published, because it is the
+    // *worker's* day and need not be the same day as the `today` window above —
+    // that one follows the timezone the phone reported.
+    period: "day",
+    period_tz_offset_minutes: state.tzOffsetMinutes,
+  };
+}
+
+async function handleUsagePost(request: Request, env: Env): Promise<Response> {
+  const parsedConfig = parseDeviceConfig(env);
+  if (!parsedConfig.ok) return jsonResponse(MISCONFIGURED, 500);
+
+  const auth = await authoriseDevice(request, parsedConfig.config);
+  if (!auth.ok) return jsonResponse(UNAUTHORIZED, 401);
 
   let model: string;
   try {
@@ -495,8 +788,8 @@ async function handleUsagePost(request: Request, env: Env): Promise<Response> {
         `INSERT OR IGNORE INTO usage_events
            (item_id, model, usage_type, quantity, billable_seconds,
             price_micro_usd_per_minute, price_estimated, usd_nanos,
-            created_at_ms)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`,
+            created_at_ms, device_id)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)`,
       )
       .bind(
         report.itemId,
@@ -508,6 +801,8 @@ async function handleUsagePost(request: Request, env: Env): Promise<Response> {
         price.estimated ? 1 : 0,
         usdNanos,
         Date.now(),
+        // The authenticated identity, not anything in the body.
+        auth.deviceId,
       )
       .run();
     const changes = result.meta?.changes ?? 0;
@@ -517,14 +812,79 @@ async function handleUsagePost(request: Request, env: Env): Promise<Response> {
   }
 }
 
+interface BreakdownRow extends WindowRow {
+  device_id: string;
+}
+
+/**
+ * The owner's cross-device view: one entry per device that either is configured
+ * now or has ever spent.
+ *
+ * A revoked device keeps its history and stays in the list with
+ * `configured: false`, because deleting a secret must not silently rewrite what
+ * has already been spent.
+ */
+function buildBreakdown(
+  config: DeviceConfig,
+  perWindow: Map<string, BreakdownRow>[],
+  capDayByDevice: Map<string, BreakdownRow>,
+) {
+  const ids = new Set<string>(config.devices.keys());
+  for (const window of perWindow) {
+    for (const id of window.keys()) ids.add(id);
+  }
+  for (const id of capDayByDevice.keys()) ids.add(id);
+
+  return [...ids]
+    .map((id) => {
+      const capMicros = config.caps.get(id);
+      const spentMicros = Math.round(
+        (capDayByDevice.get(id)?.nanos ?? 0) / 1000,
+      );
+      return {
+        device_id: id,
+        // False means "has history but can no longer authenticate".
+        configured: config.devices.has(id),
+        windows: {
+          today: windowSummary(perWindow[0].get(id) ?? null),
+          last_7d: windowSummary(perWindow[1].get(id) ?? null),
+          last_30d: windowSummary(perWindow[2].get(id) ?? null),
+        },
+        // Spend in the *cap's* day, which is why it is reported separately from
+        // the `today` window: the two follow different timezones by design.
+        cap_day_usd_micros: spentMicros,
+        cap:
+          capMicros === undefined
+            ? null
+            : capSummary({
+                capMicros,
+                spentMicros,
+                tzOffsetMinutes: config.capTzOffsetMinutes,
+              }),
+      };
+    })
+    .sort(
+      (left, right) =>
+        right.windows.last_30d.usd_micros - left.windows.last_30d.usd_micros ||
+        left.device_id.localeCompare(right.device_id),
+    );
+}
+
+function indexByDevice(rows: BreakdownRow[]): Map<string, BreakdownRow> {
+  return new Map(rows.map((row) => [row.device_id, row]));
+}
+
 async function handleUsageGet(
   request: Request,
   env: Env,
   url: URL,
 ): Promise<Response> {
-  if (!(await deviceIsAuthorised(request, env))) {
-    return jsonResponse(UNAUTHORIZED, 401);
-  }
+  const parsedConfig = parseDeviceConfig(env);
+  if (!parsedConfig.ok) return jsonResponse(MISCONFIGURED, 500);
+  const config = parsedConfig.config;
+
+  const auth = await authoriseDevice(request, config);
+  if (!auth.ok) return jsonResponse(UNAUTHORIZED, 401);
 
   let model: string;
   try {
@@ -541,18 +901,52 @@ async function handleUsageGet(
   );
   const now = Date.now();
   const starts = windowStartsMs(now, tzOffsetMinutes);
+  const isOwner = config.ownerDeviceId === auth.deviceId;
 
+  // Every device sees its own spend and nothing else. Not a secrecy measure so
+  // much as an honesty one: a shared total on a borrowed phone reads as that
+  // phone's total.
   let rows: WindowRow[];
+  let breakdown: ReturnType<typeof buildBreakdown> | undefined;
   try {
     const statement = db.prepare(WINDOW_SQL);
     const results = await db.batch<WindowRow>([
-      statement.bind(starts.today, now),
-      statement.bind(starts.last7d, now),
-      statement.bind(starts.last30d, now),
+      statement.bind(auth.deviceId, starts.today, now),
+      statement.bind(auth.deviceId, starts.last7d, now),
+      statement.bind(auth.deviceId, starts.last30d, now),
     ]);
     rows = results.map((result) => result.results[0] ?? null) as WindowRow[];
+
+    if (isOwner) {
+      const grouped = db.prepare(BREAKDOWN_SQL);
+      const groupedResults = await db.batch<BreakdownRow>([
+        grouped.bind(starts.today, now),
+        grouped.bind(starts.last7d, now),
+        grouped.bind(starts.last30d, now),
+        grouped.bind(localDayStartMs(now, config.capTzOffsetMinutes), now),
+      ]);
+      const indexed = groupedResults.map((result) =>
+        indexByDevice(result.results ?? []),
+      );
+      breakdown = buildBreakdown(config, indexed.slice(0, 3), indexed[3]);
+    }
   } catch {
     return jsonResponse({ error: "Could not read usage" }, 500);
+  }
+
+  const ownCapMicros = config.caps.get(auth.deviceId);
+  let ownCap: ReturnType<typeof capSummary> | null = null;
+  if (ownCapMicros !== undefined) {
+    const state = await readCapState(
+      db,
+      auth.deviceId,
+      ownCapMicros,
+      now,
+      config.capTzOffsetMinutes,
+    );
+    // A cap we could not read is reported as absent rather than as a wrong
+    // number; the cap is still enforced at /token, which fails closed.
+    ownCap = state === null ? null : capSummary(state);
   }
 
   return jsonResponse(
@@ -569,6 +963,14 @@ async function handleUsageGet(
         last_7d: windowSummary(rows[1]),
         last_30d: windowSummary(rows[2]),
       },
+      // Whose meter this is. Echoed so the phone can label the figures rather
+      // than imply they are the account's.
+      device_id: auth.deviceId,
+      is_owner: isOwner,
+      /** Null when this device is uncapped. */
+      cap: ownCap,
+      /** Present for the owner only. */
+      ...(breakdown === undefined ? {} : { devices: breakdown }),
       tz_offset_minutes: tzOffsetMinutes,
       as_of: new Date(now).toISOString(),
       // Reserved for a future admin-key reconciliation path; the phone should
@@ -580,7 +982,12 @@ async function handleUsageGet(
 }
 
 async function handleToken(request: Request, env: Env): Promise<Response> {
-  if (!env.OPENAI_API_KEY || !(await deviceIsAuthorised(request, env))) {
+  const parsedConfig = parseDeviceConfig(env);
+  if (!parsedConfig.ok) return jsonResponse(MISCONFIGURED, 500);
+  const config = parsedConfig.config;
+
+  const auth = await authoriseDevice(request, config);
+  if (!env.OPENAI_API_KEY || !auth.ok) {
     return jsonResponse(UNAUTHORIZED, 401);
   }
 
@@ -590,6 +997,41 @@ async function handleToken(request: Request, env: Env): Promise<Response> {
   } catch {
     // Misconfiguration, not a bad request — do not leak the offending value.
     return jsonResponse(MISCONFIGURED, 500);
+  }
+
+  // The cap is enforced here because this is the only point where spending can
+  // be *prevented* rather than recorded: no ephemeral token, no session, no
+  // charge. An uncapped device skips the lookup entirely and pays none of its
+  // latency — which is why the owner's own phone is unaffected.
+  const capMicros = config.caps.get(auth.deviceId);
+  if (capMicros !== undefined) {
+    const db = env.DB;
+    // A cap with no ledger to read is not enforceable, and quietly minting the
+    // token would defeat the point of configuring one.
+    if (!db) return jsonResponse(MISCONFIGURED, 500);
+
+    const state = await readCapState(
+      db,
+      auth.deviceId,
+      capMicros,
+      Date.now(),
+      config.capTzOffsetMinutes,
+    );
+    if (state === null) {
+      return jsonResponse({ error: "Could not verify the spend cap" }, 500);
+    }
+    if (state.spentMicros >= state.capMicros) {
+      // 402 rather than 403: nothing is wrong with the request or the device,
+      // the budget is simply used up. The figures are included so the phone can
+      // say what happened instead of showing a bare failure.
+      return jsonResponse(
+        {
+          error: "Daily spend cap reached",
+          cap: capSummary(state),
+        },
+        402,
+      );
+    }
   }
 
   // The device may only supply hints. The session shape and the model are

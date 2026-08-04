@@ -11,9 +11,11 @@ import {
 } from "vitest";
 import worker, {
   audioTokensPerMinute,
+  authoriseDevice,
   createSessionRequest,
   defaultModel,
   localDayStartMs,
+  parseDeviceConfig,
   parseHints,
   parseUsageReport,
   priceFor,
@@ -26,7 +28,8 @@ import worker, {
   type Env,
   type SessionHints,
 } from "../src/index";
-import migrationSql from "../migrations/0001_usage_events.sql?raw";
+import migration0001 from "../migrations/0001_usage_events.sql?raw";
+import migration0002 from "../migrations/0002_usage_events_device.sql?raw";
 
 const MODEL = defaultModel();
 
@@ -543,6 +546,31 @@ interface UsageWindow {
   sessions: number;
 }
 
+interface UsageWindows {
+  today: UsageWindow;
+  last_7d: UsageWindow;
+  last_30d: UsageWindow;
+}
+
+interface UsageCap {
+  usd: number;
+  usd_micros: number;
+  spent_usd: number;
+  spent_usd_micros: number;
+  remaining_usd: number;
+  remaining_usd_micros: number;
+  period: string;
+  period_tz_offset_minutes: number;
+}
+
+interface DeviceBreakdown {
+  device_id: string;
+  configured: boolean;
+  windows: UsageWindows;
+  cap_day_usd_micros: number;
+  cap: UsageCap | null;
+}
+
 interface UsageResponse {
   model: string;
   price: {
@@ -551,26 +579,38 @@ interface UsageResponse {
     unit: string;
     estimated: boolean;
   };
-  windows: { today: UsageWindow; last_7d: UsageWindow; last_30d: UsageWindow };
+  windows: UsageWindows;
+  device_id: string;
+  is_owner: boolean;
+  cap: UsageCap | null;
+  devices?: DeviceBreakdown[];
   tz_offset_minutes: number;
   as_of: string;
   source: string;
+  error?: string;
 }
 
 const SECRET = "0123456789abcdef0123456789abcdef";
+/** A second device, so "whose spend is this" has a wrong answer to give. */
+const MOM_SECRET = "ffffffffffffffff0123456789abcdef";
+const DAVID_SECRET = "aaaaaaaaaaaaaaaa0123456789abcdef";
+
+const ZERO_WINDOW = { seconds: 0, usd: 0, usd_micros: 0, sessions: 0 };
 const NOON = Date.parse("2026-08-01T12:00:00.000Z");
 const DAY = 86_400_000;
 
 let mf: Miniflare;
 let db: D1Database;
 
-/** Statements from the real migration file, so the tests cannot drift from it. */
+/** Statements from the real migration files, so the tests cannot drift from them. */
 function migrationStatements(): string[] {
-  return migrationSql
-    .replace(/--[^\n]*/g, "")
-    .split(";")
-    .map((statement) => statement.trim())
-    .filter((statement) => statement.length > 0);
+  return [migration0001, migration0002].flatMap((sql) =>
+    sql
+      .replace(/--[^\n]*/g, "")
+      .split(";")
+      .map((statement) => statement.trim())
+      .filter((statement) => statement.length > 0),
+  );
 }
 
 function testEnv(overrides: Partial<Env> = {}): Env {
@@ -967,10 +1007,28 @@ describe("GET /usage", () => {
         estimated: false,
       },
       windows: {
-        today: { seconds: 0, usd: 0, usd_micros: 0, sessions: 0 },
-        last_7d: { seconds: 0, usd: 0, usd_micros: 0, sessions: 0 },
-        last_30d: { seconds: 0, usd: 0, usd_micros: 0, sessions: 0 },
+        today: ZERO_WINDOW,
+        last_7d: ZERO_WINDOW,
+        last_30d: ZERO_WINDOW,
       },
+      // The legacy DEVICE_SECRET authenticates as "default", which is also the
+      // owner when OWNER_DEVICE_ID is unset.
+      device_id: "default",
+      is_owner: true,
+      cap: null,
+      devices: [
+        {
+          device_id: "default",
+          configured: true,
+          windows: {
+            today: ZERO_WINDOW,
+            last_7d: ZERO_WINDOW,
+            last_30d: ZERO_WINDOW,
+          },
+          cap_day_usd_micros: 0,
+          cap: null,
+        },
+      ],
       tz_offset_minutes: 180,
       as_of: "2026-08-01T12:00:00.000Z",
       source: "device_reported",
@@ -1122,5 +1180,449 @@ describe("GET /usage", () => {
     // 100 s at $0.017/min = $0.0283333...; nanos round to 28333300 -> 28333 µ$.
     expect(body.windows.today.usd_micros).toBe(28333);
     expect(body.windows.today.usd).toBe(0.028333);
+  });
+});
+
+/* ------------------------------------------------------------ two devices */
+
+/** Two named devices and no legacy secret, i.e. the shape after the migration. */
+function namedEnv(overrides: Partial<Env> = {}): Env {
+  return testEnv({
+    DEVICE_SECRET: "",
+    DEVICE_SECRETS: JSON.stringify({ david: DAVID_SECRET, mom: MOM_SECRET }),
+    OWNER_DEVICE_ID: "david",
+    ...overrides,
+  });
+}
+
+function configOf(env: Env) {
+  const parsed = parseDeviceConfig(env);
+  if (!parsed.ok) throw new Error(`expected a valid config, got: ${parsed.error}`);
+  return parsed.config;
+}
+
+function errorOf(env: Env): string {
+  const parsed = parseDeviceConfig(env);
+  if (parsed.ok) throw new Error("expected the config to be rejected");
+  return parsed.error;
+}
+
+describe("parseDeviceConfig", () => {
+  it("maps the legacy secret onto the default device id", () => {
+    const config = configOf(testEnv());
+    expect([...config.devices.keys()]).toEqual(["default"]);
+    // Unset OWNER_DEVICE_ID falls back to the legacy device when it exists, so
+    // the existing single-phone install keeps seeing its own breakdown.
+    expect(config.ownerDeviceId).toBe("default");
+  });
+
+  it("reads a JSON map of per-device secrets alongside the legacy one", () => {
+    const config = configOf(
+      testEnv({ DEVICE_SECRETS: JSON.stringify({ mom: MOM_SECRET }) }),
+    );
+    expect([...config.devices.keys()].sort()).toEqual(["default", "mom"]);
+  });
+
+  it("has no owner once the legacy device is gone and none is named", () => {
+    const config = configOf(namedEnv({ OWNER_DEVICE_ID: "" }));
+    // Defaulting to the literal "default" here would 500 the whole worker.
+    expect(config.ownerDeviceId).toBeNull();
+  });
+
+  it("treats no configured secrets as an empty registry, not an error", () => {
+    const config = configOf(testEnv({ DEVICE_SECRET: "" }));
+    expect(config.devices.size).toBe(0);
+  });
+
+  it("refuses a device id and a secret that cannot work", () => {
+    const cases: Array<[string, unknown]> = [
+      ["an uppercase id", { Mom: MOM_SECRET }],
+      ["a dotted id", { "mom.phone": MOM_SECRET }],
+      ["an empty id", { "": MOM_SECRET }],
+      ["an over-long id", { ["m".repeat(33)]: MOM_SECRET }],
+      ["a short secret", { mom: "too-short" }],
+      ["a secret secureEquals would refuse", { mom: "x".repeat(513) }],
+      ["a non-string secret", { mom: 12345 }],
+    ];
+    for (const [label, secrets] of cases) {
+      const env = testEnv({ DEVICE_SECRET: "", DEVICE_SECRETS: JSON.stringify(secrets) });
+      expect(errorOf(env), label).toBeTruthy();
+    }
+  });
+
+  it("rejects a payload that is not a JSON object of secrets", () => {
+    expect(errorOf(testEnv({ DEVICE_SECRETS: "{not json" }))).toContain("not valid JSON");
+    expect(errorOf(testEnv({ DEVICE_SECRETS: "[]" }))).toContain("must be a JSON object");
+    expect(errorOf(testEnv({ DEVICE_SECRETS: "null" }))).toContain("must be a JSON object");
+  });
+
+  it("rejects DEVICE_SECRET and DEVICE_SECRETS both claiming 'default'", () => {
+    const env = testEnv({ DEVICE_SECRETS: JSON.stringify({ default: MOM_SECRET }) });
+    expect(errorOf(env)).toContain("both define");
+  });
+
+  it("rejects two devices sharing one secret, and names neither", () => {
+    const env = testEnv({
+      DEVICE_SECRET: "",
+      DEVICE_SECRETS: JSON.stringify({ david: MOM_SECRET, mom: MOM_SECRET }),
+    });
+    const error = errorOf(env);
+    expect(error).toContain("same secret");
+    expect(error).not.toContain(MOM_SECRET);
+  });
+
+  it("grandfathers a short legacy secret rather than locking the owner out", () => {
+    // Enforcing the length rule on a secret that is already deployed would turn
+    // this deploy into a lockout.
+    const config = configOf(testEnv({ DEVICE_SECRET: "short" }));
+    expect(config.devices.get("default")).toBe("short");
+  });
+
+  it("reads caps as USD and stores them as micro-USD", () => {
+    const config = configOf(namedEnv({ DEVICE_CAPS: JSON.stringify({ mom: 1 }) }));
+    expect(config.caps.get("mom")).toBe(1_000_000);
+    expect(config.caps.get("david")).toBeUndefined();
+  });
+
+  it("defaults the cap's day boundary to UTC and takes it from the server only", () => {
+    expect(configOf(namedEnv()).capTzOffsetMinutes).toBe(0);
+    expect(
+      configOf(namedEnv({ CAP_TZ_OFFSET_MINUTES: "180" })).capTzOffsetMinutes,
+    ).toBe(180);
+    // Junk falls back to UTC rather than failing: a wrong boundary still caps
+    // spend, a dead worker stops the owner dictating.
+    for (const junk of ["", "   ", "abc", "9999", "1.5"]) {
+      expect(
+        configOf(namedEnv({ CAP_TZ_OFFSET_MINUTES: junk })).capTzOffsetMinutes,
+        junk,
+      ).toBe(0);
+    }
+  });
+
+  it("rejects a cap naming a device that cannot authenticate", () => {
+    // The typo that matters is the mirror of this one: "mum" configured here
+    // leaves "mom" uncapped, so this fails rather than warns.
+    const env = namedEnv({ DEVICE_CAPS: JSON.stringify({ mum: 5 }) });
+    expect(errorOf(env)).toContain("unknown device");
+  });
+
+  it("rejects a cap that is not a sane amount of money", () => {
+    for (const cap of [-1, 10_001, Number.NaN, Number.POSITIVE_INFINITY, "5", null]) {
+      const env = namedEnv({ DEVICE_CAPS: JSON.stringify({ mom: cap }) });
+      expect(errorOf(env), `cap ${String(cap)}`).toBeTruthy();
+    }
+  });
+
+  it("rejects an OWNER_DEVICE_ID that names no device", () => {
+    expect(errorOf(namedEnv({ OWNER_DEVICE_ID: "nobody" }))).toContain(
+      "OWNER_DEVICE_ID",
+    );
+  });
+});
+
+describe("authoriseDevice", () => {
+  it("reports which device the secret belongs to", async () => {
+    const config = configOf(namedEnv());
+    for (const [secret, expected] of [
+      [DAVID_SECRET, "david"],
+      [MOM_SECRET, "mom"],
+    ] as const) {
+      const request = new Request("https://worker.test/usage", {
+        headers: { "X-Device-Secret": secret },
+      });
+      expect(await authoriseDevice(request, config)).toEqual({
+        ok: true,
+        deviceId: expected,
+      });
+    }
+  });
+
+  it("refuses a secret that belongs to no device", async () => {
+    const config = configOf(namedEnv());
+    for (const secret of [SECRET, "", `${MOM_SECRET}x`, MOM_SECRET.slice(0, -1)]) {
+      const request = new Request("https://worker.test/usage", {
+        headers: { "X-Device-Secret": secret },
+      });
+      expect(await authoriseDevice(request, config), secret).toEqual({
+        ok: false,
+        reason: "unauthorized",
+      });
+    }
+  });
+});
+
+describe("per-device usage", () => {
+  it("stamps the authenticated device on the row, ignoring any id in the body", async () => {
+    const response = await postUsage(
+      // A device claiming to be someone else must change nothing: identity
+      // comes from the secret that matched, exactly as the model does.
+      { item_id: "item_mom", usage: duration(60), device_id: "david" },
+      { secret: MOM_SECRET, env: namedEnv() },
+    );
+    expect(response.status).toBe(202);
+
+    const row = await db
+      .prepare("SELECT device_id FROM usage_events WHERE item_id = 'item_mom'")
+      .first<{ device_id: string }>();
+    expect(row?.device_id).toBe("mom");
+  });
+
+  it("keeps pre-0002 rows on the owner's default device", async () => {
+    // What the migration's column default does to history written before any of
+    // this existed.
+    await db
+      .prepare(
+        `INSERT INTO usage_events
+           (item_id, model, usage_type, quantity, billable_seconds,
+            price_micro_usd_per_minute, price_estimated, usd_nanos, created_at_ms)
+         VALUES ('item_legacy', 'gpt-live-transcribe', 'duration', 60, 60,
+                 17000, 0, 17000000, ?1)`,
+      )
+      .bind(NOON)
+      .run();
+
+    const { body } = await readUsage({ atMs: NOON });
+    expect(body.device_id).toBe("default");
+    expect(body.windows.today.usd).toBe(0.017);
+  });
+
+  it("shows each device only its own spend", async () => {
+    const env = namedEnv();
+    vi.setSystemTime(NOON);
+    await postUsage({ item_id: "item_d", usage: duration(60) }, { secret: DAVID_SECRET, env });
+    await postUsage({ item_id: "item_m1", usage: duration(120) }, { secret: MOM_SECRET, env });
+    await postUsage({ item_id: "item_m2", usage: duration(60) }, { secret: MOM_SECRET, env });
+
+    const david = await readUsage({ secret: DAVID_SECRET, env, atMs: NOON });
+    expect(david.body.device_id).toBe("david");
+    expect(david.body.windows.today).toMatchObject({ seconds: 60, sessions: 1 });
+
+    const mom = await readUsage({ secret: MOM_SECRET, env, atMs: NOON });
+    expect(mom.body.device_id).toBe("mom");
+    expect(mom.body.windows.today).toMatchObject({ seconds: 180, sessions: 2 });
+  });
+
+  it("gives the breakdown to the owner and to nobody else", async () => {
+    const env = namedEnv();
+    vi.setSystemTime(NOON);
+    await postUsage({ item_id: "item_d", usage: duration(60) }, { secret: DAVID_SECRET, env });
+    await postUsage({ item_id: "item_m", usage: duration(120) }, { secret: MOM_SECRET, env });
+
+    const owner = await readUsage({ secret: DAVID_SECRET, env, atMs: NOON });
+    expect(owner.body.is_owner).toBe(true);
+    // Sorted by the widest window, so the biggest spender leads.
+    expect(owner.body.devices?.map((entry) => entry.device_id)).toEqual([
+      "mom",
+      "david",
+    ]);
+    expect(owner.body.devices?.[0].windows.today.seconds).toBe(120);
+    expect(owner.body.devices?.[0].configured).toBe(true);
+
+    const mom = await readUsage({ secret: MOM_SECRET, env, atMs: NOON });
+    expect(mom.body.is_owner).toBe(false);
+    expect(mom.body.devices).toBeUndefined();
+  });
+
+  it("keeps a revoked device's history visible, marked unconfigured", async () => {
+    const env = namedEnv();
+    vi.setSystemTime(NOON);
+    await postUsage({ item_id: "item_m", usage: duration(60) }, { secret: MOM_SECRET, env });
+
+    // Mom's secret is removed — the way revocation actually happens.
+    const revoked = namedEnv({
+      DEVICE_SECRETS: JSON.stringify({ david: DAVID_SECRET }),
+    });
+    expect(
+      (await postUsage({ item_id: "item_m2", usage: duration(60) }, {
+        secret: MOM_SECRET,
+        env: revoked,
+      })).status,
+    ).toBe(401);
+
+    const owner = await readUsage({ secret: DAVID_SECRET, env: revoked, atMs: NOON });
+    const entry = owner.body.devices?.find((row) => row.device_id === "mom");
+    expect(entry?.configured).toBe(false);
+    expect(entry?.windows.today.seconds).toBe(60);
+  });
+
+  it("reports a capped device's own cap, and null for an uncapped one", async () => {
+    const env = namedEnv({ DEVICE_CAPS: JSON.stringify({ mom: 1 }) });
+    vi.setSystemTime(NOON);
+    // 60 s at $0.017/min = $0.017.
+    await postUsage({ item_id: "item_m", usage: duration(60) }, { secret: MOM_SECRET, env });
+
+    const mom = await readUsage({ secret: MOM_SECRET, env, atMs: NOON });
+    expect(mom.body.cap).toEqual({
+      usd: 1,
+      usd_micros: 1_000_000,
+      spent_usd: 0.017,
+      spent_usd_micros: 17_000,
+      remaining_usd: 0.983,
+      remaining_usd_micros: 983_000,
+      period: "day",
+      period_tz_offset_minutes: 0,
+    });
+
+    const david = await readUsage({ secret: DAVID_SECRET, env, atMs: NOON });
+    expect(david.body.cap).toBeNull();
+    // The owner sees mom's cap too, so one screen answers "how close is she".
+    expect(david.body.devices?.find((row) => row.device_id === "mom")?.cap?.usd).toBe(1);
+  });
+
+  it("counts the cap's day in the worker's timezone, not the phone's", async () => {
+    // Cap day boundary at UTC+3; the phone claims UTC-5 for its display windows.
+    const env = namedEnv({
+      DEVICE_CAPS: JSON.stringify({ mom: 1 }),
+      CAP_TZ_OFFSET_MINUTES: "180",
+    });
+    const capDayStart = localDayStartMs(NOON, 180);
+    vi.setSystemTime(capDayStart - 1);
+    await postUsage({ item_id: "item_before", usage: duration(60) }, { secret: MOM_SECRET, env });
+    vi.setSystemTime(capDayStart);
+    await postUsage({ item_id: "item_after", usage: duration(120) }, { secret: MOM_SECRET, env });
+
+    const mom = await readUsage({
+      secret: MOM_SECRET,
+      env,
+      atMs: NOON,
+      query: "?tz_offset_minutes=-300",
+    });
+    // Only the 120 s inside the worker's day counts against the cap...
+    expect(mom.body.cap?.spent_usd_micros).toBe(34_000);
+    expect(mom.body.cap?.period_tz_offset_minutes).toBe(180);
+    // ...while the displayed windows still follow the phone's own timezone.
+    expect(mom.body.tz_offset_minutes).toBe(-300);
+  });
+});
+
+describe("POST /token spend cap", () => {
+  const okClientSecret = { value: "ek_test", expires_at: 1 };
+
+  function tokenRequest(secret: string): Request {
+    return new Request("https://worker.test/token", {
+      method: "POST",
+      headers: { "X-Device-Secret": secret, "Content-Type": "application/json" },
+      body: JSON.stringify({ languages: ["ru"] }),
+    });
+  }
+
+  /** Nothing in this suite may reach OpenAI. */
+  function stubOpenAI() {
+    return vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response(JSON.stringify(okClientSecret), { status: 200 }));
+  }
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("mints a token while the device is under its cap", async () => {
+    const openai = stubOpenAI();
+    const env = namedEnv({ DEVICE_CAPS: JSON.stringify({ mom: 1 }) });
+    vi.setSystemTime(NOON);
+    await postUsage({ item_id: "item_m", usage: duration(60) }, { secret: MOM_SECRET, env });
+
+    const response = await worker.fetch(tokenRequest(MOM_SECRET), env);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual(okClientSecret);
+    expect(openai).toHaveBeenCalledOnce();
+  });
+
+  it("refuses with 402 once the day's spend has reached the cap", async () => {
+    const openai = stubOpenAI();
+    // A cap of $0.02 against one $0.017 minute, then a second one to cross it.
+    const env = namedEnv({ DEVICE_CAPS: JSON.stringify({ mom: 0.02 }) });
+    vi.setSystemTime(NOON);
+    await postUsage({ item_id: "item_m1", usage: duration(60) }, { secret: MOM_SECRET, env });
+    await postUsage({ item_id: "item_m2", usage: duration(60) }, { secret: MOM_SECRET, env });
+
+    const response = await worker.fetch(tokenRequest(MOM_SECRET), env);
+    expect(response.status).toBe(402);
+    expect(await response.json()).toEqual({
+      error: "Daily spend cap reached",
+      cap: {
+        usd: 0.02,
+        usd_micros: 20_000,
+        spent_usd: 0.034,
+        spent_usd_micros: 34_000,
+        remaining_usd: 0,
+        remaining_usd_micros: 0,
+        period: "day",
+        period_tz_offset_minutes: 0,
+      },
+    });
+    // The point of the cap: OpenAI is never asked, so nothing is charged.
+    expect(openai).not.toHaveBeenCalled();
+  });
+
+  it("counts only today against the cap, so it resets overnight", async () => {
+    stubOpenAI();
+    const env = namedEnv({ DEVICE_CAPS: JSON.stringify({ mom: 0.02 }) });
+    // $0.17 spent yesterday must not bar today.
+    vi.setSystemTime(localDayStartMs(NOON, 0) - 1);
+    await postUsage(
+      { item_id: "item_yesterday", usage: duration(600) },
+      { secret: MOM_SECRET, env },
+    );
+
+    vi.setSystemTime(NOON);
+    const response = await worker.fetch(tokenRequest(MOM_SECRET), env);
+    expect(response.status).toBe(200);
+  });
+
+  it("keeps recording usage after the cap is reached", async () => {
+    stubOpenAI();
+    const env = namedEnv({ DEVICE_CAPS: JSON.stringify({ mom: 0.01 }) });
+    vi.setSystemTime(NOON);
+    await postUsage({ item_id: "item_m1", usage: duration(60) }, { secret: MOM_SECRET, env });
+    expect((await worker.fetch(tokenRequest(MOM_SECRET), env)).status).toBe(402);
+
+    // A session already committed to OpenAI is charged whatever the cap says, so
+    // the ledger must still accept its report (see OPEN_QUESTIONS R15).
+    const late = await postUsage(
+      { item_id: "item_m2", usage: duration(60) },
+      { secret: MOM_SECRET, env },
+    );
+    expect(late.status).toBe(202);
+  });
+
+  it("leaves an uncapped device's latency and failure modes untouched", async () => {
+    const openai = stubOpenAI();
+    // No DB at all: the owner is uncapped, so the ledger is never consulted and
+    // a missing binding cannot stop them dictating.
+    const env = namedEnv({ DB: undefined, DEVICE_CAPS: JSON.stringify({ mom: 1 }) });
+
+    const response = await worker.fetch(tokenRequest(DAVID_SECRET), env);
+    expect(response.status).toBe(200);
+    expect(openai).toHaveBeenCalledOnce();
+  });
+
+  it("fails closed when a capped device's ledger cannot be read", async () => {
+    const openai = stubOpenAI();
+    const env = namedEnv({ DB: undefined, DEVICE_CAPS: JSON.stringify({ mom: 1 }) });
+
+    const response = await worker.fetch(tokenRequest(MOM_SECRET), env);
+    // A cap that evaporates when D1 is unreachable is not a cap.
+    expect(response.status).toBe(500);
+    expect(openai).not.toHaveBeenCalled();
+  });
+
+  it("refuses every route when the device configuration is malformed", async () => {
+    const openai = stubOpenAI();
+    const env = namedEnv({ DEVICE_CAPS: "{not json" });
+
+    const token = await worker.fetch(tokenRequest(DAVID_SECRET), env);
+    expect(token.status).toBe(500);
+    expect(await token.json()).toEqual({ error: "Worker is misconfigured" });
+
+    const get = await readUsage({ secret: DAVID_SECRET, env });
+    expect(get.status).toBe(500);
+    const post = await postUsage(
+      { item_id: "item_x", usage: duration(60) },
+      { secret: DAVID_SECRET, env },
+    );
+    expect(post.status).toBe(500);
+    expect(openai).not.toHaveBeenCalled();
   });
 });

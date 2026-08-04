@@ -2,6 +2,7 @@ package dev.dobrinskiy.livetype.network
 
 import android.util.Log
 import dev.dobrinskiy.livetype.config.LiveTypeSettings
+import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
@@ -33,12 +34,58 @@ data class UsagePrice(
     val estimated: Boolean,
 )
 
+/**
+ * A daily spend ceiling the worker enforces for this device, refusing to mint a
+ * token once [spentUsdMicros] reaches [usdMicros].
+ *
+ * [period] is the worker's own word for the window the figures cover, and
+ * [periodTzOffsetMinutes] the boundary it drew it on. That boundary is the
+ * *worker's* and need not match the phone's own day, which is what the windows
+ * above use — so both are displayed rather than assumed.
+ */
+data class UsageCap(
+    val usdMicros: Long,
+    val spentUsdMicros: Long,
+    val remainingUsdMicros: Long,
+    val period: String,
+    val periodTzOffsetMinutes: Int,
+)
+
+/**
+ * One device's share of the spend. Only the owner's phone is sent these.
+ *
+ * [configured] false means the device has history but its secret has been
+ * revoked — it still appears, because removing a secret must not quietly rewrite
+ * what has already been spent.
+ */
+data class DeviceUsage(
+    val deviceId: String,
+    val configured: Boolean,
+    val today: UsageWindow,
+    val last7d: UsageWindow,
+    val last30d: UsageWindow,
+    /** Spend inside the cap's day, which is the worker's day and not this phone's. */
+    val capDayUsdMicros: Long,
+    val cap: UsageCap?,
+)
+
 data class UsageSummary(
     val model: String,
     val price: UsagePrice,
     val today: UsageWindow,
     val last7d: UsageWindow,
     val last30d: UsageWindow,
+    /**
+     * Which device the worker decided this request came from, derived from the
+     * secret that matched and never from anything the phone sent. Displayed so
+     * the figures are visibly *this* phone's rather than the account's.
+     */
+    val deviceId: String,
+    val isOwner: Boolean,
+    /** Null when this device is uncapped. */
+    val cap: UsageCap?,
+    /** Empty for everyone but the owner. */
+    val devices: List<DeviceUsage>,
     val source: String,
     val asOf: String,
 )
@@ -182,6 +229,9 @@ class UsageReporter {
         val last30d = window(windows.optJSONObject("last_30d")) ?: return UsageOutcome.Malformed
         if (!price.has("usd_micros_per_minute")) return UsageOutcome.Malformed
 
+        val devices = devices(json.optJSONArray("devices"))
+            ?: return UsageOutcome.Malformed
+
         return UsageOutcome.Loaded(
             UsageSummary(
                 // model and source are displayed, never assumed: the worker owns
@@ -195,10 +245,57 @@ class UsageReporter {
                 today = today,
                 last7d = last7d,
                 last30d = last30d,
+                deviceId = json.optString("device_id"),
+                isOwner = json.optBoolean("is_owner", false),
+                cap = cap(json.optJSONObject("cap")),
+                devices = devices,
                 source = json.optString("source"),
                 asOf = json.optString("as_of"),
             ),
         )
+    }
+
+    /**
+     * A cap block, or null when the worker sent `null` — which it does both for
+     * an uncapped device and for a cap whose spend it could not read. Either way
+     * there is no number to show, and inventing one would be worse.
+     */
+    private fun cap(json: JSONObject?): UsageCap? {
+        if (json == null || !json.has("usd_micros")) return null
+        return UsageCap(
+            usdMicros = json.optLong("usd_micros"),
+            spentUsdMicros = json.optLong("spent_usd_micros"),
+            remainingUsdMicros = json.optLong("remaining_usd_micros"),
+            period = json.optString("period"),
+            periodTzOffsetMinutes = json.optInt("period_tz_offset_minutes", 0),
+        )
+    }
+
+    /**
+     * The owner's breakdown. An absent array is not an error — everyone but the
+     * owner gets none — but an entry that cannot be read fails the whole parse
+     * rather than silently dropping a device out of a spend table.
+     */
+    private fun devices(array: JSONArray?): List<DeviceUsage>? {
+        if (array == null) return emptyList()
+        val devices = ArrayList<DeviceUsage>(array.length())
+        for (index in 0 until array.length()) {
+            val entry = array.optJSONObject(index) ?: return null
+            val windows = entry.optJSONObject("windows") ?: return null
+            val deviceId = entry.optString("device_id").ifBlank { return null }
+            devices.add(
+                DeviceUsage(
+                    deviceId = deviceId,
+                    configured = entry.optBoolean("configured", false),
+                    today = window(windows.optJSONObject("today")) ?: return null,
+                    last7d = window(windows.optJSONObject("last_7d")) ?: return null,
+                    last30d = window(windows.optJSONObject("last_30d")) ?: return null,
+                    capDayUsdMicros = entry.optLong("cap_day_usd_micros"),
+                    cap = cap(entry.optJSONObject("cap")),
+                ),
+            )
+        }
+        return devices
     }
 
     /**

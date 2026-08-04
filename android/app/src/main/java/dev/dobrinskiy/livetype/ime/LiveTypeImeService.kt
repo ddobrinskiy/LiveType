@@ -33,6 +33,7 @@ import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
 import dev.dobrinskiy.livetype.MainActivity
+import dev.dobrinskiy.livetype.MoneyFormat
 import dev.dobrinskiy.livetype.R
 import dev.dobrinskiy.livetype.audio.PcmAudioRecorder
 import dev.dobrinskiy.livetype.config.AppSettings
@@ -40,6 +41,7 @@ import dev.dobrinskiy.livetype.config.FeatureFlags
 import dev.dobrinskiy.livetype.config.LiveTypeSettings
 import dev.dobrinskiy.livetype.config.RecordingLimit
 import dev.dobrinskiy.livetype.network.RealtimeTranscriber
+import dev.dobrinskiy.livetype.network.SpendCapReachedException
 import dev.dobrinskiy.livetype.network.TokenProvider
 import dev.dobrinskiy.livetype.network.UsageReporter
 import org.json.JSONObject
@@ -784,11 +786,31 @@ class LiveTypeImeService : InputMethodService() {
                     },
                     onFailure = {
                         setIndicator(serverIndicator, ConnectionState.ERROR)
-                        failSession(it.message ?: getString(R.string.error_token_failed))
+                        failSession(tokenFailureMessage(it))
                     },
                 )
             }
         }
+    }
+
+    /**
+     * What the keyboard says when no token could be had.
+     *
+     * A spent daily allowance is the one failure here that is not a fault, so
+     * it gets a plain sentence in the user's own language instead of the
+     * worker's English `error` text — the person hitting it is the least likely
+     * to know what a 402 is. Everything else keeps the existing behaviour of
+     * showing the underlying message.
+     */
+    private fun tokenFailureMessage(failure: Throwable): String = when {
+        failure !is SpendCapReachedException ->
+            failure.message ?: getString(R.string.error_token_failed)
+
+        failure.usdMicros > 0L ->
+            getString(R.string.error_spend_cap, MoneyFormat.usd(failure.usdMicros))
+
+        // The worker refused but sent no figures; say so without inventing one.
+        else -> getString(R.string.error_spend_cap_unknown)
     }
 
     /**

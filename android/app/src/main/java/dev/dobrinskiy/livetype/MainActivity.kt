@@ -106,6 +106,9 @@ class MainActivity : Activity() {
     private lateinit var billingToday: TextView
     private lateinit var billingLast7d: TextView
     private lateinit var billingLast30d: TextView
+    private lateinit var billingDevice: TextView
+    private lateinit var billingCap: TextView
+    private lateinit var billingDevices: LinearLayout
 
     private val usageReporter = UsageReporter()
 
@@ -524,9 +527,39 @@ class MainActivity : Activity() {
         }
         section.addView(billingStatus)
 
+        // Whose meter this is. The worker derives the name from the secret that
+        // authenticated, so on a second phone this line is what stops its own
+        // figures reading as the whole account's.
+        billingDevice = TextView(this).apply {
+            textSize = 13f
+            setTextColor(Color.DKGRAY)
+            setPadding(0, 0, 0, dp(6))
+            visibility = View.GONE
+        }
+        section.addView(billingDevice)
+
         billingToday = billingRow(section, getString(R.string.billing_window_today))
         billingLast7d = billingRow(section, getString(R.string.billing_window_7d))
         billingLast30d = billingRow(section, getString(R.string.billing_window_30d))
+
+        // Only for a capped device, and only ever the worker's own figures: the
+        // cap is enforced there, not here.
+        billingCap = TextView(this).apply {
+            textSize = 13f
+            setTextColor(Color.rgb(150, 90, 20))
+            setPadding(0, dp(8), 0, 0)
+            visibility = View.GONE
+        }
+        section.addView(billingCap)
+
+        // The owner's cross-device breakdown, rebuilt on every load because the
+        // set of devices is the worker's to change without an app rebuild.
+        billingDevices = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, dp(10), 0, 0)
+            visibility = View.GONE
+        }
+        section.addView(billingDevices)
 
         billingFooter = TextView(this).apply {
             textSize = 12f
@@ -650,9 +683,77 @@ class MainActivity : Activity() {
         billingToday.text = MoneyFormat.usd(summary.today.usdMicros)
         billingLast7d.text = MoneyFormat.usd(summary.last7d.usdMicros)
         billingLast30d.text = MoneyFormat.usd(summary.last30d.usdMicros)
+        showBillingDevice(summary)
         billingFooter.visibility = View.VISIBLE
         billingFooter.text =
             getString(R.string.billing_source, summary.source, formatAsOf(summary.asOf))
+    }
+
+    /**
+     * The per-device half: who this phone is, its limit if it has one, and — for
+     * the owner — what every device has spent.
+     *
+     * A worker that predates per-device metering sends none of this, which is
+     * why every part of it is conditional rather than assumed present.
+     */
+    private fun showBillingDevice(summary: UsageSummary) {
+        if (summary.deviceId.isBlank()) {
+            billingDevice.visibility = View.GONE
+        } else {
+            billingDevice.visibility = View.VISIBLE
+            billingDevice.text = getString(
+                if (summary.isOwner) R.string.billing_device_owner else R.string.billing_device,
+                summary.deviceId,
+            )
+        }
+
+        val cap = summary.cap
+        if (cap == null) {
+            billingCap.visibility = View.GONE
+        } else {
+            billingCap.visibility = View.VISIBLE
+            billingCap.text = getString(
+                R.string.billing_cap,
+                MoneyFormat.usd(cap.usdMicros),
+                MoneyFormat.usd(cap.spentUsdMicros),
+                MoneyFormat.usd(cap.remainingUsdMicros),
+            ) + "\n" + getString(R.string.billing_cap_period_note)
+        }
+
+        billingDevices.removeAllViews()
+        // One device is not a breakdown — it is the table directly above.
+        if (summary.devices.size < 2) {
+            billingDevices.visibility = View.GONE
+            return
+        }
+        billingDevices.visibility = View.VISIBLE
+        billingDevices.addView(TextView(this).apply {
+            setText(R.string.billing_devices_title)
+            textSize = 13f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.DKGRAY)
+            setPadding(0, 0, 0, dp(2))
+        })
+        for (device in summary.devices) {
+            val label = if (device.configured) {
+                device.deviceId
+            } else {
+                getString(R.string.billing_device_revoked, device.deviceId)
+            }
+            billingRow(billingDevices, label).text =
+                MoneyFormat.usd(device.last30d.usdMicros)
+            val deviceCap = device.cap ?: continue
+            billingDevices.addView(TextView(this).apply {
+                text = getString(
+                    R.string.billing_device_cap,
+                    MoneyFormat.usd(deviceCap.usdMicros),
+                    MoneyFormat.usd(deviceCap.remainingUsdMicros),
+                )
+                textSize = 12f
+                setTextColor(Color.GRAY)
+                setPadding(0, 0, 0, dp(4))
+            })
+        }
     }
 
     /**
@@ -669,6 +770,12 @@ class MainActivity : Activity() {
         billingToday.setText(R.string.billing_unknown)
         billingLast7d.setText(R.string.billing_unknown)
         billingLast30d.setText(R.string.billing_unknown)
+        // Same rule as the amounts: a stale device name or limit left on screen
+        // would attach last load's identity to this load's failure.
+        billingDevice.visibility = View.GONE
+        billingCap.visibility = View.GONE
+        billingDevices.visibility = View.GONE
+        billingDevices.removeAllViews()
     }
 
     /** The worker's ISO timestamp, shown in the phone's own zone and format. */

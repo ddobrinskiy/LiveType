@@ -5,11 +5,11 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
-// Debug convenience: bake the local dev endpoint + DEVICE_SECRET into debug
+// Debug convenience: bake the local dev endpoint + one device secret into debug
 // builds so an adb install is immediately usable without retyping them on the
 // phone. Reads worker/.dev.vars (gitignored). Absent file -> empty strings, no
-// failure: fresh clones and CI must still build. Only DEVICE_SECRET is read;
-// OPENAI_API_KEY never leaves the worker.
+// failure: fresh clones and CI must still build. Only a device secret is read
+// (see readDebugDeviceSecret); OPENAI_API_KEY never leaves the worker.
 val devVarsFile = rootProject.file("../worker/.dev.vars")
 
 fun readDevVar(name: String): String {
@@ -69,9 +69,38 @@ val debugKeywords: String = providers.fileContents(keywordsFile).asText.orNull
     ?.joinToString("\n")
     .orEmpty()
 
+/**
+ * The secret a debug build bakes in, so an `adb install` is usable without
+ * retyping it. Prefers the legacy single `DEVICE_SECRET`; otherwise takes the
+ * first `DEVICE_SECRET_<NAME>` entry in the file, which is the convention the
+ * Worker reads — one variable per device. Put your own phone's first.
+ *
+ * No device name is hard-coded here on purpose: this file is public and the
+ * names are the maintainer's.
+ */
+fun readDebugDeviceSecret(): String {
+    val legacy = readDevVar("DEVICE_SECRET")
+    if (legacy.isNotEmpty()) return legacy
+    if (!devVarsFile.isFile) return ""
+    return devVarsFile.readLines()
+        .asSequence()
+        .map(String::trim)
+        .filterNot { it.isEmpty() || it.startsWith("#") }
+        .mapNotNull { line ->
+            val separator = line.indexOf('=')
+            if (separator <= 0) return@mapNotNull null
+            if (!line.substring(0, separator).trim().startsWith("DEVICE_SECRET_")) {
+                return@mapNotNull null
+            }
+            line.substring(separator + 1).trim().trim('"', '\'').ifEmpty { null }
+        }
+        .firstOrNull()
+        .orEmpty()
+}
+
 val e2eMode = providers.gradleProperty("livetypeE2e").orNull == "true"
 val e2ePort = providers.gradleProperty("livetypeE2ePort").orNull ?: "8788"
-val debugDeviceSecret = if (e2eMode) "e2e-device-secret" else readDevVar("DEVICE_SECRET")
+val debugDeviceSecret = if (e2eMode) "e2e-device-secret" else readDebugDeviceSecret()
 val debugTokenEndpoint = if (e2eMode) {
     "http://10.0.2.2:$e2ePort/token"
 } else {
@@ -116,8 +145,8 @@ android {
         applicationId = "dev.dobrinskiy.livetype"
         minSdk = 28
         targetSdk = 35
-        versionCode = 3
-        versionName = "0.1.2"
+        versionCode = 4
+        versionName = "0.1.3"
     }
 
     signingConfigs {

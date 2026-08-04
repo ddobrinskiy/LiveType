@@ -1,3 +1,23 @@
 OPENAI_API_KEY=sk-project-replace-me
-DEVICE_SECRET=replace-with-at-least-32-random-bytes
 
+# One variable per device: the name after DEVICE_SECRET_ is the device id the
+# Worker records spend against, lower-cased. Generate each with
+# `openssl rand -hex 32`. A one-phone install can instead set a single
+# DEVICE_SECRET, which authenticates as the device `default`.
+#
+# Debug Android builds bake in the FIRST DEVICE_SECRET_* entry below, so put
+# your own phone's first.
+DEVICE_SECRET_ME=replace-with-at-least-32-random-bytes
+# DEVICE_SECRET_MOM=another-32-random-bytes
+
+# Who sees every device's spend rather than only their own.
+OWNER_DEVICE_ID=me
+
+# Optional daily allowance in USD per device, e.g. {"mom":1}.
+# DEVICE_CAPS={"mom":1}
+
+# Optional: minutes to add to UTC for the cap's day boundary (180 = Moscow).
+# CAP_TZ_OFFSET_MINUTES=180
+
+# The deployed Worker's /token URL, used by debug builds for the PROD dropdown.
+# PROD_TOKEN_ENDPOINT=https://livetype-token.your-subdomain.workers.dev/token

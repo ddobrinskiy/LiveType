@@ -102,6 +102,15 @@
     <string name="billing_error_worker">Воркер не смог показать расходы: %1$s</string>
     <string name="billing_error_http">Воркер вернул HTTP %1$d</string>
     <string name="billing_error_malformed">Не удалось прочитать ответ воркера.</string>
+    <string name="billing_device">Это устройство: %1$s</string>
+    <string name="billing_device_owner">Это устройство: %1$s · воркер твой</string>
+    <string name="billing_cap">Лимит на день %1$s · потрачено %2$s · осталось %3$s</string>
+    <string name="billing_cap_period_note">Лимит обнуляется каждый день по часам воркера — они могут не совпадать с днём этого телефона.</string>
+    <string name="billing_devices_title">По устройствам, за 30 дней</string>
+    <string name="billing_device_revoked">%1$s (секрет отозван)</string>
+    <string name="billing_device_cap">лимит %1$s · осталось %2$s на сегодня</string>
+    <string name="error_spend_cap">Исчерпан лимит %1$s на день</string>
+    <string name="error_spend_cap_unknown">Исчерпан дневной лимит расходов</string>
 
     <!-- Defaults seeded into settings on first run -->
     <string name="default_languages">ru,en</string>

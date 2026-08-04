@@ -36,3 +36,6 @@ artifacts/
 .idea/
 *.iml
 .DS_Store
+
+# Git worktrees created inside the repo (see `git worktree list`).
+.worktrees/

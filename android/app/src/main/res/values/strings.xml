@@ -150,6 +150,21 @@
     <string name="billing_error_worker">The Worker could not report spending: %1$s</string>
     <string name="billing_error_http">The Worker returned HTTP %1$d</string>
     <string name="billing_error_malformed">The Worker\'s answer could not be read.</string>
+    <!--
+        Per-device metering. The device name is the one the Worker derived from
+        the secret that authenticated, so it names this phone and not the
+        account. billing_cap_period echoes the Worker's own word for the window
+        rather than assuming it matches this phone's day.
+    -->
+    <string name="billing_device">This device: %1$s</string>
+    <string name="billing_device_owner">This device: %1$s · you own this Worker</string>
+    <string name="billing_cap">Daily limit %1$s · %2$s spent · %3$s left</string>
+    <string name="billing_cap_period_note">The limit resets each day on the Worker\'s clock, which need not match this phone\'s day.</string>
+    <string name="billing_devices_title">By device, last 30 days</string>
+    <string name="billing_device_revoked">%1$s (secret revoked)</string>
+    <string name="billing_device_cap">limit %1$s · %2$s left today</string>
+    <string name="error_spend_cap">Daily limit of %1$s reached</string>
+    <string name="error_spend_cap_unknown">Daily spending limit reached</string>
 
     <!-- Defaults seeded into settings on first run -->
     <string name="default_languages">ru,en</string>

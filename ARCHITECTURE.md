@@ -5,7 +5,7 @@ tells a stranger how to run it; `AGENTS.md` is the working guide with local
 setup and hard-won API gotchas. **This file is for decisions** — so a future
 session does not re-litigate them or silently undo one.
 
-Last updated: 2026-08-01.
+Last updated: 2026-08-04.
 
 ---
 
@@ -20,7 +20,7 @@ flowchart LR
         TP["TokenProvider"]
     end
 
-    subgraph Edge["Cloudflare Worker — today: wrangler dev on the Mac"]
+    subgraph Edge["Cloudflare Worker (deployed; wrangler dev locally)"]
         TOK["POST /token"]
         USE["POST /usage<br/>GET /usage"]
         D1[("D1: usage_events")]
@@ -67,39 +67,40 @@ phone talks to OpenAI directly.
 
 ---
 
-## 2. Cloudflare is half in the loop: the database exists, the Worker does not
+## 2. Cloudflare: what is deployed, and the two paths to it
 
-**The remote D1 database is real.** `livetype-usage`,
-`850f00b2-d22f-49ff-bcdb-f0eca6f087da`, region WEUR, created in the
-`cf@dobrinskiy.me` account on 2026-08-01 with `0001_usage_events.sql` applied
-`--remote`. `worker/wrangler.jsonc` now carries that id instead of the old
-`REPLACE_WITH_ID_FROM_WRANGLER_D1_CREATE` placeholder, so a deploy would bind
-to something real. It starts empty, by design — see §3.8.
+**The Worker is deployed** in the `cf@dobrinskiy.me` account, and dictation works
+away from the desk. Its URL is not in this repository — the repo is public and a
+Worker URL is a live endpoint — so it lives in `worker/.dev.vars` as
+`PROD_TOKEN_ENDPOINT`, which debug builds read at build time to fill
+`EndpointMode.PROD`. Release builds bake in nothing and are pointed at it by hand.
 
-**The Worker itself is still not deployed.** Two account-level gates stopped
-`wrangler deploy` on 2026-08-01, both needing the account owner rather than a
-code change:
+**The remote D1 database is `livetype-usage`**,
+`850f00b2-d22f-49ff-bcdb-f0eca6f087da`, region WEUR; `worker/wrangler.jsonc`
+carries that id. It holds only what the deployed Worker has recorded — local
+development writes to a different database entirely (§3.8).
 
-1. **The Cloudflare account's email address is unverified.** Any write to
-   `/workers/scripts/*` returns `10034 — You need to verify your email address
-   to use Workers`. This blocks `wrangler secret put` and `wrangler deploy`
-   alike. (D1 is not gated on it, which is why step 1 succeeded.)
-2. **No `workers.dev` subdomain has ever been registered** (`10007`). One is
-   created by opening the Workers & Pages page in the dashboard once, or by
-   answering wrangler's interactive prompt — it names a permanent,
-   account-wide hostname, so it is not a choice to make on the owner's behalf.
+**Two paths, both permanent:**
 
-Until both are cleared, **`wrangler dev` on the Mac remains the only path** and
-**dictation only works while the phone is tethered over USB with the Worker
-running** — `adb reverse` forwards `phone:8787 → mac:8787`. That local path is
-not going away when the deploy lands: it stays the development loop, with its
-own separate local D1 under `.wrangler/state`.
+| | Deployed Worker | `wrangler dev` on the Mac |
+|---|---|---|
+| Reached by | `https://…workers.dev/token` | `http://127.0.0.1:8787/token` via `adb reverse tcp:8787 tcp:8787` |
+| D1 | remote `livetype-usage` | local SQLite under `worker/.wrangler/state` |
+| Needs the cable | no | yes |
 
-Deploying is what makes the keyboard usable away from the desk. See §5.
+The local path is the development loop and is not a fallback for the deployed
+one; the two databases are unrelated, so spend recorded against one is invisible
+to the other.
 
-**When it does deploy, it will be a public URL with no rate limiting** — one
-static `DEVICE_SECRET` is the only guard, and that secret has already leaked
-once, in a screen recording. See §5.5.
+**Configuration lives in Cloudflare, not in the repo.** The Worker reads
+`OPENAI_API_KEY` and the device secrets from its secret store; `TRANSCRIPTION_MODEL`
+is an optional var. Changing the model or adding a device is a
+`wrangler secret put` plus a deploy, with no app rebuild — see §3.2 and §3.14.
+
+**The endpoint is a public URL with no rate limiting.** A bearer device secret is
+the only guard, and the owner's has leaked once, in a screen recording.
+Per-device secrets and per-device spend caps (§3.14) bound the damage without
+closing the hole. See §5.1.
 
 ---
 
@@ -113,7 +114,8 @@ ephemeral `ek_…` token. The phone never sees the real key.
 Audio deliberately does not proxy through the Worker: it would add latency to a
 latency-critical product, and long-lived audio streaming is a poor fit for
 Workers' execution model. The cost is that a compromised phone can mint 60-second
-transcription sessions — bounded, and revocable by rotating `DEVICE_SECRET`.
+transcription sessions — bounded, and revocable by removing that device's secret
+(§3.14).
 
 ### 3.2 The Worker is the authority on model choice
 
@@ -344,6 +346,10 @@ idempotency), **freezing the price at session time** so a later price change
 never rewrites history. Money is held in integer micro-USD, never floats.
 Windows are whole *local* calendar days, so "today" means what the user thinks.
 
+Every row also carries the `device_id` whose secret authenticated the report, so
+a Worker shared with a second phone can say whose spend is whose and can cap one
+phone without touching the other — see §3.14.
+
 The Costs API was evaluated and rejected: it needs an admin key (403
 `Missing scopes: api.usage.read`), buckets only by UTC day, and does not group
 by model. An admin key also exposes ~119 endpoints including API-key minting —
@@ -386,7 +392,14 @@ that bookkeeping is lost.
 
 Data can only be lost through a deliberate act: running `wrangler d1 execute`
 with destructive SQL, deleting and recreating the database, or adding a
-migration containing `DROP`/`ALTER`. Keep new migrations additive.
+migration that drops or rewrites a table. Keep new migrations additive.
+
+`ALTER TABLE … ADD COLUMN` with a constant default is additive and safe — it is
+what `0002` uses to add `device_id`. It does cost the second guard the other
+migrations have: SQLite has no `ADD COLUMN IF NOT EXISTS`, so `0002` cannot be
+written idempotently and relies solely on wrangler's record of what has run.
+Re-applying it fails with `duplicate column name: device_id` and changes
+nothing — noisy, not lossy.
 
 ### 3.8.1 Geography: the phone must sit in an OpenAI-supported country
 
@@ -552,6 +565,105 @@ and an explicit `removeCallbacks` on **every** route out of `RECORDING`:
 place), `cancelDictation` (keyboard switch, password field, grace and idle
 teardown, `onDestroy`) and `failSession`.
 
+### 3.14 One secret per device, and the Worker decides which device you are
+
+Sharing the Worker with a second person (the case that prompted this: a parent's
+phone) needed the ledger to answer "whose spend is this", and needed a way to
+stop that phone spending without bound. Both hang off the same decision.
+
+**Identity is which secret matched, never what the device claims.** One variable
+per device, `DEVICE_SECRET_<NAME>`, discovered by scanning `env` for that prefix;
+`authoriseDevice` returns the id whose secret authenticated, and that id is what
+`POST /usage` writes into `usage_events.device_id`. The binding name carries the
+identity, so there is no JSON to quote, nothing to re-serialise when a device is
+added, and — because `wrangler dev` reads `.dev.vars` exactly as the deployed
+Worker reads its secret store — the local and deployed configurations have the
+same shape rather than merely similar ones. A `device_id` in the request body is ignored, for the
+same reason a `model` in it is (§3.2): a self-reported identity turns the ledger
+into a self-report, and lets one device write rows under another's name.
+
+The alternative — one shared secret plus a device-supplied id — was rejected on
+those grounds and on revocation: with a shared secret there is no way to cut off
+one phone without re-entering the secret on every other. A derived-credential
+scheme (`mom.<hmac(master,"mom")>`, one master secret forever) was also
+considered and rejected: at two devices it buys nothing, revocation still needs
+an env-var list, a revoked id can never be safely reissued, and a leaked master
+lets an attacker mint any identity.
+
+`DEVICE_SECRET` also works, and authenticates as the device id `default` — which
+is what `0002`'s column default puts on rows written before the column existed.
+A single-phone install therefore needs no per-device variable and no change on
+the phone, and its history belongs to `default`.
+
+**Configuration is validated as a whole, and refuses to be half-understood.**
+`parseDeviceConfig` rejects a device name whose lower-cased form falls outside
+`[a-z0-9_-]{1,32}`, a secret shorter than 24 characters or longer than the 512
+`secureEquals` will compare, two variables naming the same device (reachable
+through case alone), two devices sharing one secret, a cap on a device that
+cannot authenticate, and an `OWNER_DEVICE_ID` naming no device. Every one of
+those surfaces as `500 Worker is misconfigured` on *every* route, exactly as a
+bad `TRANSCRIPTION_MODEL` already does.
+
+That is deliberately loud. The failure this must not have is a typo that quietly
+leaves a device uncapped — `{"mum":1}` when the device is `mom` would otherwise
+mean unlimited spend, silently. A worker that is loudly down is fixed with one
+`wrangler secret put`; money spent under a cap that was ignored is not
+recoverable. Two exceptions to the loudness, both deliberate:
+
+- **No secrets configured at all** is not an error. It yields an empty registry,
+  which matches nothing, so every request gets 401 — the fail-closed behaviour a
+  blank `DEVICE_SECRET` always had.
+- **A blank per-device variable means "not configured", not "broken".** That
+  device cannot authenticate, which fails closed for one device instead of taking
+  the whole worker down for every other. A value that is present but unusable is
+  a different thing and is rejected.
+- **`DEVICE_SECRET` is exempt from the length rule.** It is a deployed
+  credential; refusing to serve a short one would lock the owner out of their own
+  worker rather than improve it. `DEVICE_SECRET_<NAME>` values are authored
+  knowingly and are checked.
+
+**The cap is enforced at `/token`, because that is the only place spending can be
+prevented rather than recorded.** No ephemeral token means no session and no
+charge. `DEVICE_CAPS` is a map of device id → **daily** allowance in USD; a device
+at or over today's total gets `402` with the figures attached, and the keyboard
+says so in the user's own language rather than showing an HTTP line
+(`SpendCapReachedException`).
+
+**The cap's day boundary is a server setting, not the phone's.**
+`CAP_TZ_OFFSET_MINUTES` (minutes to add to UTC, default 0) decides when the
+allowance resets. The phone's own `tz_offset_minutes` is deliberately *not* used
+here even though `GET /usage` accepts it for the display windows: a device that
+could choose its own day boundary could shift the window and hand itself a fresh
+allowance, which is precisely the leverage over cost that §3.2 keeps away from the
+device. The cost of that choice is that the cap's day and the `today` row on the
+billing screen can be different windows, so the response publishes the boundary
+it used (`period`, `period_tz_offset_minutes`) and the phone says so rather than
+implying the two agree.
+
+Three consequences worth stating:
+
+- **It costs one D1 read on the latency path — but only for capped devices.** An
+  uncapped device never reaches the query, so the owner's own phone pays neither
+  the latency nor the failure mode. That asymmetry is the reason the cap is a map
+  rather than a global default.
+- **It fails closed.** If the ledger cannot be read for a capped device, `/token`
+  returns 500 instead of minting. A cap that evaporates when D1 hiccups is not a
+  cap.
+- **It blocks minting, never recording.** `POST /usage` keeps accepting reports
+  from a device that is over its cap: the audio was already committed to OpenAI
+  and is charged whatever the worker decides next, so refusing the report would
+  only hide real spend (see `OPEN_QUESTIONS.md` R15).
+
+**Each device sees its own spend; the owner also sees everyone's.** `GET /usage`
+filters to the calling device and echoes `device_id`, so figures on a borrowed
+phone cannot read as the account's. `OWNER_DEVICE_ID` additionally gets a
+`devices` array. A device whose secret has been removed stays in that array with
+`configured: false` and keeps its history — revoking a credential must not
+rewrite what has already been spent.
+
+What this does **not** add is rate limiting (§5.1). A cap bounds the money; it
+does not bound the request count before the cap is checked.
+
 ---
 
 ## 4. Decisions the user made explicitly
@@ -575,33 +687,30 @@ Screenshot the result for any UI change. See `AGENTS.md` for the commands.
 
 ---
 
-## 5. Open questions
+## 5. Known gaps
 
-1. **Deploy the Worker to Cloudflare.** Decided yes; **blocked on the account,
-   not on the code** — see §2. The remote D1 half is done. What remains needs
-   the account owner: verify the Cloudflare account's email address, and let a
-   `workers.dev` subdomain be created. After that, `wrangler secret put
-   OPENAI_API_KEY`, `wrangler secret put DEVICE_SECRET`, `wrangler deploy`.
-   Until then the keyboard only works tethered to the Mac.
-2. **Publish the repo?** Done — public at `github.com/ddobrinskiy/LiveType`.
-   Which raises the stakes on item 5: anything committed here is world-readable,
-   and the README's rate-limiting recommendation is now advice given in public
-   about an endpoint that does not follow it.
-3. **Release signing.** `assembleRelease` currently produces an *unsigned* APK.
-   Attaching builds to GitHub Releases needs a signing config fed from secrets,
-   with the keystore kept out of the repo.
-4. **FUTO mic hand-off.** Investigated: FUTO's mic button switches to the first
-   *enabled* IME declaring an `imeSubtypeMode="voice"` subtype — it does not use
-   `RecognizerIntent`. LiveType declares no subtype, so it is invisible to that
-   mechanism. Adding one (~5 lines, plus `overridesImplicitlyEnabledSubtype="true"`,
-   which is required, not cosmetic) plus FUTO's "Disable built-in voice input"
-   toggle would wire it up with no fork. Confirmed on-device that the voice slot
-   is free: only `org.futo.voiceinput` declares one and it is not enabled.
-   Not implemented.
-5. **Worker rate limiting** is recommended in the README but not configured, and
-   the decision was explicitly to deploy without it. The moment item 1 clears,
-   the token endpoint is a public URL whose only guard is a static
-   `DEVICE_SECRET` — one that has already leaked once, in a screen recording. A
-   holder of it can mint 60-second transcription sessions against the account's
-   OpenAI key, without limit, and the ledger in §3.8 would record the spend but
-   not stop it. Rotating the secret is the mitigation that exists today.
+Live concerns, not history. Anything awaiting a decision lives in
+`OPEN_QUESTIONS.md`; anything unverified on a device lives in `QA.md`.
+
+1. **The token endpoint has no rate limiting.** It is a public URL guarded only by
+   a bearer device secret, and the owner's has leaked once, in a screen recording.
+   A holder of one can mint 60-second transcription sessions against the account's
+   OpenAI key. §3.14 narrows this — secrets are per device, so a leak is revoked
+   without disturbing the other phones, and a capped device is refused at `/token`
+   once it has spent its day's allowance — but neither is a limiter: the owner's
+   own device is deliberately uncapped, and nothing bounds the request count
+   before a cap is checked. The OpenAI project budget remains the only hard
+   ceiling. Cloudflare's rate-limiting binding, keyed on the device id, is the
+   obvious next step if the Worker is shared beyond family.
+2. **The repository is public**, at `github.com/ddobrinskiy/LiveType`. Anything
+   committed is world-readable, which is why the Worker URL lives only in
+   `worker/.dev.vars` and why `*.apk` is gitignored — a debug APK carries a device
+   secret in plaintext (§3.9).
+3. **FUTO mic hand-off is investigated but not implemented.** FUTO's mic button
+   switches to the first *enabled* IME declaring an `imeSubtypeMode="voice"`
+   subtype; it does not use `RecognizerIntent`. LiveType declares no subtype, so it
+   is invisible to that mechanism. Adding one (~5 lines, plus
+   `overridesImplicitlyEnabledSubtype="true"`, which is required rather than
+   cosmetic) plus FUTO's "Disable built-in voice input" toggle would wire it up
+   with no fork; the voice slot is confirmed free on-device. Declined for now —
+   see `OPEN_QUESTIONS.md` R14.

@@ -30,6 +30,20 @@ Verify the APK actually recompiled — a sub-second `BUILD SUCCESSFUL` usually
 means `compileDebugKotlin` was `UP-TO-DATE` and nothing changed. Compare the
 APK's mtime against the clock rather than trusting the build log.
 
+**`adb install` printing `Success` is not proof either.** Observed 2026-08-04: an
+install reported success and `dumpsys package` showed the new `versionName` and a
+fresh `lastUpdateTime`, while the APK resident on the phone was an older build
+that lacked the new strings entirely — an hour of debugging went into the app
+"not rendering" code it did not have. Verify by hash, and pass `-s <serial>`
+whenever more than one device or emulator might be attached:
+
+```bash
+adb -s <serial> install -r app/build/outputs/apk/debug/app-debug.apk
+APK=$(adb -s <serial> shell pm path dev.dobrinskiy.livetype | sed 's/^package://' | tr -d '\r')
+adb -s <serial> pull "$APK" /tmp/installed.apk
+shasum -a256 /tmp/installed.apk app/build/outputs/apk/debug/app-debug.apk   # must match
+```
+
 **The same applies after every merge.** Merging a branch — especially work done
 by a parallel agent in a worktree — is a change to the app like any other, and
 until the merged APK is on the phone nothing has actually been verified. A
@@ -81,6 +95,31 @@ OPENAI_API_KEY=sk-project-...
 DEVICE_SECRET=<random 32+ hex chars>
 ```
 
+That is the single-device shape, and it authenticates as the device id `default`.
+The real file uses one variable per device instead —
+`DEVICE_SECRET_DAVID`, `DEVICE_SECRET_MOM`, plus `OWNER_DEVICE_ID` and
+`DEVICE_CAPS` — which is exactly what the deployed Worker holds in its secret
+store, so `wrangler dev` and production see the same devices. See
+`worker/.dev.vars.example` and
+[Per-device secrets and caps](#per-device-secrets-and-caps).
+
+**`worker/.dev.vars` is the one place device secrets are written down.** It is
+gitignored and Cloudflare will not read a secret back out, so the only backup is
+`worker/.dev.vars.age`, the committed copy encrypted to the maintainer's age
+recipient. Re-encrypt and commit it after any edit — see
+[the README](README.md#the-maintainers-own-configuration-workerdevvarsage):
+
+```bash
+grep -v '^OPENAI_API_KEY=' worker/.dev.vars \
+  | age -r age1aqdf22l6p03g408sg9m9jxu6hwmml0vn9sr7jukff0ty35dwsuuswv9ak4 \
+      -o worker/.dev.vars.age
+```
+
+**Keep the `grep`.** `OPENAI_API_KEY` must not reach the ciphertext: an encrypted
+live API key in a public repository is still published, and archives are forever.
+The filter means the key can sit in `.dev.vars` for `wrangler dev` without ever
+being committed. Without the key, `wrangler dev` returns 401 from `/token`.
+
 The Android **debug** build also reads this file and bakes `DEVICE_SECRET` in —
 see [Debug vs release configuration](#debug-vs-release-configuration).
 
@@ -119,7 +158,8 @@ $AAPT2 dump xmltree --file res/xml/network_security_config.xml \
 ```bash
 cd worker
 # One-off: create the usage tables in the local D1 wrangler dev will use.
-npx wrangler d1 execute livetype-usage --local --file=./migrations/0001_usage_events.sql -y
+# Applies every migration in order; 0002 adds device_id and cannot be re-run.
+npx wrangler d1 migrations apply livetype-usage --local
 npx wrangler dev --ip 0.0.0.0
 # Serves on http://0.0.0.0:8787
 # Auto-reloads on src changes
@@ -174,6 +214,21 @@ cd android && ./gradlew assembleDebug
 
 `.github/workflows/ci.yml` runs exactly those two on push to `main` and on every
 pull request. Nothing in CI needs secrets, and CI never touches a device.
+
+**`gh` defaults to the wrong account here.** Two accounts are logged in and the
+*work* one (`ddobrinskiy-top`) is usually active, while this repository belongs to
+the personal one (`ddobrinskiy`). Any write — `gh release create` above all — then
+fails with `"workflow" scope may be required`, which is a misleading hint: the
+scope is fine, the account simply has no write access. Check with
+`gh auth status`, and switch for the duration:
+
+```bash
+gh auth switch -u ddobrinskiy -h github.com
+# ... do the write ...
+gh auth switch -u ddobrinskiy-top -h github.com
+```
+
+`git push` is unaffected: it goes over SSH, not through `gh`.
 
 The worker suite boots a real `workerd` through **miniflare** to get a real
 in-memory D1 for the billing tests — the SQL, the `INSERT OR IGNORE`
@@ -383,7 +438,7 @@ The app logs errors with tags:
 | `You must not provide a model parameter for transcription sessions` | Same as above | Same as above |
 | `languages parameter not supported` | Model doesn't support language hint | Remove `languages` from client_secrets request body |
 | `no credits remaining` (429, `credit_balance_exhausted`) | OpenAI account out of credits | Top up billing. Note `/token` still returns **200** — minting an ephemeral secret is free, so the failure only surfaces at the WebSocket stage |
-| `/usage` returns `500 {"error":"Could not read usage"}` or `"Could not record usage"` | D1 has no `usage_events` table | Run the `wrangler d1 execute … --file=./migrations/0001_usage_events.sql` step |
+| `/usage` returns `500 {"error":"Could not read usage"}` or `"Could not record usage"` | D1 has no `usage_events` table | Run the `wrangler d1 migrations apply livetype-usage --local` step |
 | `/usage` returns `500 {"error":"Worker is misconfigured"}` | no `DB` binding, or a bad `TRANSCRIPTION_MODEL` | Check `wrangler.jsonc` `d1_databases` and the model allowlist |
 
 ## Model Notes
@@ -444,6 +499,57 @@ is deliberately off the allowlist.
 
 ## Billing and usage tracking
 
+### Per-device secrets and caps
+
+Four env vars, all optional, all read through one `parseDeviceConfig(env)`:
+
+| Var | Shape | What it does |
+|---|---|---|
+| `DEVICE_SECRET` | one secret | The single-device path. Authenticates as the device id `default`, which is also what migration `0002` backfilled onto pre-existing rows. |
+| `DEVICE_SECRET_<NAME>` | one variable per device | The suffix, lower-cased, is the device id: `DEVICE_SECRET_MOM` → `mom`. Ids match `[a-z0-9_-]{1,32}`; secrets are 24–512 characters. Blank means "not configured" rather than broken. |
+| `OWNER_DEVICE_ID` | `"david"` | Who sees the `devices` breakdown. Unset falls back to `default` **if that device exists**, else nobody. |
+| `DEVICE_CAPS` | `{"mom":1}` | **Daily** allowance in USD, enforced at `POST /token`. Absent id means uncapped. |
+| `CAP_TZ_OFFSET_MINUTES` | `"180"` | Minutes to add to UTC for the cap's day boundary. Defaults to UTC. Junk falls back to UTC rather than failing. |
+
+Two rules that are easy to break when editing this code:
+
+1. **Identity comes from which secret matched, never from the request.**
+   `authoriseDevice` returns the device id, and that is what goes in the ledger.
+   The same reasoning as `model` (§3.2 of ARCHITECTURE.md). The registry is built
+   by scanning `env` for the `DEVICE_SECRET_` prefix, so a device is added or
+   revoked with one `wrangler secret put`/`delete` and no code change.
+2. **A configuration that does not parse takes every route to
+   `500 Worker is misconfigured`.** Deliberately loud: the alternative is a typo
+   like `{"mum":1}` silently leaving `mom` uncapped. Two exceptions —
+   *no* secrets configured yields 401 (fail closed, unchanged behaviour), and a
+   short legacy `DEVICE_SECRET` is grandfathered so the check could not lock the
+   owner out.
+
+The cap is checked in `POST /token` **before** OpenAI is called, so a refusal
+costs nothing:
+
+| Status | Body | When |
+|---|---|---|
+| 402 | `{"error":"Daily spend cap reached","cap":{…}}` | this device's spend today ≥ its cap. `TokenProvider` turns this into `SpendCapReachedException` and the keyboard shows a localised sentence. |
+| 500 | `{"error":"Could not verify the spend cap"}` | a capped device whose ledger could not be read. Fails **closed** on purpose. |
+
+An uncapped device never runs the query, so it pays neither the extra D1 read on
+the latency path nor that failure mode. `POST /usage` keeps accepting reports from
+a device that is over its cap — the audio was already charged, and refusing the
+report would only hide real spend.
+
+**The cap's day is the worker's day, not the phone's.** It is
+`localDayStartMs(now, CAP_TZ_OFFSET_MINUTES)`, while the `today` window is the
+same function with the offset the *phone* sent. Do not "simplify" the cap to reuse
+the phone's value: a device that picks its own boundary can shift the window and
+give itself a fresh allowance. The response publishes the boundary it used
+(`period`, `period_tz_offset_minutes`) so the UI can say which day it means.
+
+Testing this locally needs the same variables in `.dev.vars`, which `wrangler dev`
+reads directly. The Android debug build bakes in `DEVICE_SECRET` if present and
+otherwise the **first** `DEVICE_SECRET_*` entry in the file, so keep your own
+phone's first (`readDebugDeviceSecret` in `app/build.gradle.kts`).
+
 ### Where the numbers come from
 
 OpenAI puts the **billable quantity itself** on the transcription WebSocket, in
@@ -477,7 +583,10 @@ asserts it.
 
 ### `POST /usage` — ingest
 
-Auth: `X-Device-Secret`, same `secureEquals` check as `/token`.
+Auth: `X-Device-Secret`, same `authoriseDevice` check as `/token`. The device id
+whose secret matched is written to `usage_events.device_id`; a `device_id` in the
+body is ignored exactly as `model` is. See
+[Per-device secrets and caps](#per-device-secrets-and-caps).
 
 ```jsonc
 // request
@@ -491,7 +600,7 @@ Auth: `X-Device-Secret`, same `secureEquals` check as `/token`.
 | 202 | `{"ok":true,"duplicate":true}` | `item_id` already stored — retries are free |
 | 400 | `{"error":"<reason>"}` | malformed body, bad `item_id`, unknown `usage.type`, non-numeric/negative/out-of-range quantity |
 | 401 | `{"error":"Unauthorized"}` | wrong or missing device secret |
-| 500 | `{"error":"Worker is misconfigured"}` | no `DB` binding, or an off-allowlist `TRANSCRIPTION_MODEL` |
+| 500 | `{"error":"Worker is misconfigured"}` | no `DB` binding, an off-allowlist `TRANSCRIPTION_MODEL`, or a `DEVICE_SECRET_*`/`DEVICE_CAPS`/`OWNER_DEVICE_ID` that does not parse |
 
 A single commit is capped at **14400 s** (or 144000 audio tokens) so one bad
 row cannot poison the chart. `item_id` is the primary key, so the phone's retry
@@ -518,6 +627,16 @@ outside ±840 silently falls back to UTC; the applied value is echoed back.
     "last_7d":  { … },
     "last_30d": { … }
   },
+  "device_id": "mom",          // which secret matched, not what the phone claimed
+  "is_owner": false,
+  "cap": {                     // null when this device is uncapped
+    "usd": 1, "usd_micros": 1000000,
+    "spent_usd": 0.23, "spent_usd_micros": 230000,
+    "remaining_usd": 0.77, "remaining_usd_micros": 770000,
+    "period": "day",           // the WORKER's day, not the phone's
+    "period_tz_offset_minutes": 0
+  },
+  "devices": [ … ],            // owner only; see below
   "tz_offset_minutes": 180,
   "as_of": "2026-08-01T14:31:07.000Z",
   "source": "device_reported"
@@ -526,6 +645,12 @@ outside ±840 silently falls back to UTC; the applied value is echoed back.
 
 - Windows are **whole local calendar days including today**, so `last_7d` is
   today plus the six before it — not the last 168 hours.
+- **The windows cover the calling device only.** `device_id` says which one that
+  is. `OWNER_DEVICE_ID` additionally receives a `devices` array — one entry per
+  device that is configured *or* has history — each with the same three windows,
+  a `cap_day_usd_micros` (spend inside the *cap's* day), a `cap`, and
+  `configured: false` when its secret has been revoked. Revoked devices keep their
+  history on purpose.
 - `usd == usd_micros / 1e6` always. Render either; never re-derive dollars from
   `seconds`, because the row's price may differ from the current one.
 - **`estimated: true`** for `gpt-4o-transcribe` and `gpt-4o-mini-transcribe`.
@@ -546,60 +671,61 @@ minute, transcribed from <https://developers.openai.com/api/docs/pricing> on
 enforces it. When a price changes, edit the table — old rows keep the price
 frozen into them and are never re-priced.
 
-### D1 provisioning
+### D1 provisioning and deploying
 
-**Both databases now exist.** `worker/wrangler.jsonc` carries the real
-`database_id` (`850f00b2-d22f-49ff-bcdb-f0eca6f087da`, region WEUR, created
-2026-08-01) — steps 1 and 2 below are done and are kept only as the recipe for
-a fresh account. `wrangler dev` ignores that id and makes its own local D1
-under `worker/.wrangler/`; `wrangler deploy` uses it. The two are unrelated and
-the remote one starts empty — see ARCHITECTURE.md §3.8.
+`worker/wrangler.jsonc` carries the real `database_id`
+(`850f00b2-d22f-49ff-bcdb-f0eca6f087da`, region WEUR). `wrangler dev` ignores it
+and makes its own local D1 under `worker/.wrangler/`; `wrangler deploy` uses it.
+The two are unrelated — see ARCHITECTURE.md §3.8.
 
 ```bash
 cd worker
 
-# 1. Local dev — create the tables in the local SQLite that `wrangler dev` uses.
-#    Re-runnable: the migration is IF NOT EXISTS throughout.  [done]
-npx wrangler d1 execute livetype-usage --local --file=./migrations/0001_usage_events.sql -y
+# Local dev: create/patch the tables in the SQLite `wrangler dev` uses.
+npx wrangler d1 migrations apply livetype-usage --local
 
-# 2. Real database, once per account. Copy the printed database_id into
-#    wrangler.jsonc.  [done — id already in the file]
-npx wrangler d1 create livetype-usage
-
-# 3. Apply the schema remotely.  [done: 0001_usage_events.sql, 3 commands]
-#    Note there is no `-y`; a non-interactive shell auto-confirms.
+# Remote schema, before deploying code that depends on it. There is no `-y`;
+# a non-interactive shell auto-confirms.
 npx wrangler d1 migrations apply livetype-usage --remote
 
-# 4. Secrets, then deploy.  [NOT done — blocked, see below]
-#    Feed the value on stdin so it never lands in shell history or argv.
+# Secrets. Feed the value on stdin so it never lands in shell history or argv.
 grep '^OPENAI_API_KEY=' .dev.vars | sed 's/^OPENAI_API_KEY=//' | tr -d '\n' \
   | npx wrangler secret put OPENAI_API_KEY
 grep '^DEVICE_SECRET=' .dev.vars | sed 's/^DEVICE_SECRET=//' | tr -d '\n' \
   | npx wrangler secret put DEVICE_SECRET
+
 npx wrangler deploy
 
-# Handy afterwards:
+# What is actually live right now:
+npx wrangler secret list            # names only, never values
+npx wrangler deployments list
+npx wrangler d1 migrations list livetype-usage --remote
+
+# Reading the ledger:
 npx wrangler d1 execute livetype-usage --local  --command "SELECT * FROM usage_events ORDER BY created_at_ms DESC LIMIT 10"
-npx wrangler d1 execute livetype-usage --remote --command "SELECT model, COUNT(*), SUM(usd_nanos)/1e9 AS usd FROM usage_events GROUP BY model"
+npx wrangler d1 execute livetype-usage --remote --command "SELECT device_id, COUNT(*), SUM(usd_nanos)/1e9 AS usd FROM usage_events GROUP BY device_id"
 ```
+
+**Migrate the remote database before deploying code that needs the new column.**
+The reverse order leaves the live worker 500ing on every `POST /usage` for as long
+as the gap lasts.
+
+**A new secret takes ~30 s to serve.** `wrangler secret put` reports success
+immediately and creates a new version, but requests keep being served the old
+value for around half a minute. Measured 2026-08-04: a changed `DEVICE_CAPS` was
+still absent at t+20 s and live at t+30 s. Verifying straight after the put reads
+as "the feature is broken" — poll until the behaviour flips instead of concluding
+anything from one early request.
+
+**A fresh account needs two things wrangler cannot do for you:** a verified
+account email (otherwise every write to `/workers/scripts/*` fails with
+`10034`) and a registered `workers.dev` subdomain (otherwise `deploy` fails with
+`10007`). The subdomain name is permanent and account-wide, so it is the owner's
+choice, not an agent's. D1 is gated on neither, so a database can exist while no
+worker does.
 
 Free plan: 10 databases, 500 MB, 5 M rows read/day. One dictation is a few
 hundred bytes, so this will not grow into anything.
-
-#### Step 4 is blocked on the Cloudflare account, not on the code
-
-Attempted 2026-08-01 and stopped by two gates that only the account owner can
-clear. Do not try to route around them; a half-deployed worker is worse than
-none.
-
-| Symptom | Cause | Fix |
-|---|---|---|
-| `wrangler secret put` → `10034 You need to verify your email address to use Workers` | the account's email address is unverified, which gates **every** write to `/workers/scripts/*` | verify it from the mail Cloudflare sent, or resend from the dashboard |
-| `wrangler deploy` → `10007` / "register a workers.dev subdomain" | the account has never had a `workers.dev` subdomain | open Workers & Pages in the dashboard once, or answer wrangler's prompt interactively. The name is permanent and account-wide, so it is the owner's choice |
-
-D1 is not gated on either, which is why the database half succeeded while the
-worker half did not. After clearing both, re-run step 4 and put the resulting
-`https://…/token` into `EndpointMode.PROD_ENDPOINT`.
 
 **Not KV.** KV caps writes at 1/sec/key and 1000/day on the free plan, and a
 running total in KV is a read-modify-write race against eventual consistency.
@@ -607,8 +733,8 @@ D1 is SQLite: one row per session, `SELECT SUM(...) WHERE created_at_ms >= ?`.
 
 ### Schema
 
-`worker/migrations/0001_usage_events.sql`, table `usage_events`, keyed on
-`item_id`. Each row freezes `model`, `price_micro_usd_per_minute`,
+`worker/migrations/0001_usage_events.sql` plus `0002_usage_events_device.sql`,
+table `usage_events`, keyed on `item_id`. Each row freezes `model`, `price_micro_usd_per_minute`,
 `price_estimated` and the resolved `usd_nanos` **as of the session**, keeps the
 raw reported `quantity` alongside the normalised `billable_seconds`, and stamps
 `created_at_ms` from the **worker** clock — the device's clock is never trusted

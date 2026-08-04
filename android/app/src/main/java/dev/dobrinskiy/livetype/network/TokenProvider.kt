@@ -7,6 +7,23 @@ import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 
+/**
+ * The worker refused to mint a token because this device has spent its daily
+ * allowance (HTTP 402).
+ *
+ * Its own type because it is the one token failure that is not a fault: nothing
+ * is misconfigured and nothing is unreachable, so the keyboard should say what
+ * happened in the user's language rather than surface an HTTP line. The figures
+ * are the worker's, in integer micro-USD, and are only ever displayed.
+ *
+ * [usdMicros] is 0 when the worker sent no figures with the refusal, which is
+ * why the UI must handle a capless message too.
+ */
+class SpendCapReachedException(
+    val usdMicros: Long,
+    val spentUsdMicros: Long,
+) : Exception("Daily spend cap reached")
+
 class TokenProvider {
     fun fetch(settings: LiveTypeSettings): Result<String> = runCatching {
         Log.d(TAG, "Fetching token from ${settings.tokenEndpoint}")
@@ -29,6 +46,17 @@ class TokenProvider {
             val status = connection.responseCode
             val stream = if (status in 200..299) connection.inputStream else connection.errorStream
             val body = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
+            // The cap is the one refusal with a specific thing to say, so it is
+            // picked out before the generic HTTP path flattens it into a status
+            // line. Missing or unreadable figures degrade to zeros rather than
+            // failing: the refusal itself is the news.
+            if (status == HTTP_PAYMENT_REQUIRED) {
+                val cap = runCatching { JSONObject(body).optJSONObject("cap") }.getOrNull()
+                throw SpendCapReachedException(
+                    usdMicros = cap?.optLong("usd_micros") ?: 0L,
+                    spentUsdMicros = cap?.optLong("spent_usd_micros") ?: 0L,
+                )
+            }
             if (status !in 200..299) {
                 val detail = runCatching {
                     JSONObject(body).optString("error").ifBlank { body }
@@ -56,6 +84,9 @@ class TokenProvider {
 
     companion object {
         private const val TAG = "LiveTypeToken"
+
+        /** `HttpURLConnection` has no constant for 402. */
+        private const val HTTP_PAYMENT_REQUIRED = 402
     }
 }
 

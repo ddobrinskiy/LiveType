@@ -1,8 +1,8 @@
 # QA checklist
 
-Everything built in this session, and how far each thing has actually been
-verified. Kept honest on purpose: "compiles" is not "works", and a feature only
-reaches the last column when the user says so.
+Every feature and how far it has actually been verified. Kept honest on purpose:
+"compiles" is not "works", and a feature only reaches the Confirmed column when
+the user says so.
 
 **Columns**
 
@@ -15,13 +15,12 @@ reaches the last column when the user says so.
   reading the working tree rather than by trusting the columns to its left.
   `yes` means implemented **and wired up**: the declaration was found, and so
   was a live call site. The session merged many worktree branches by hand, so
-  this column is a re-derivation, not a copy. Audited 2026-08-01 against
-  `4d3143d`.
+  this column is a re-derivation, not a copy. `yes` on a row does **not** mean the
+  code is deployed — see the Deployment section for that.
 
 Legend: `yes` · `no` · `partial` · `—` (not applicable)
 
 Last updated: 2026-08-04.
-
 ## Headless simulator E2E (assistant-verified)
 
 Run `simulators-20260804T140621Z` passed end to end on 2026-08-04. The
@@ -85,8 +84,8 @@ host/protocol harness, not Settings-driven keyboard activation.
 
 | # | Feature | Me | You | Confirmed | In main |
 |---|---|---|---|---|---|
-| 19 | Worker is the authority on model choice; device sends hints only | partial — 55 tests + hostile bodies against a live worker | — | **verified by tooling** | yes |
-| 20 | Billing backend: `POST /usage`, `GET /usage`, D1 ledger | partial — 55 tests against real D1 in workerd, plus the local `wrangler dev` database serving the live meter | yes | **yes** — totals grow across phrases | yes for the code and the local database; the **remote** one now exists and is migrated (row 43), but no deployed worker has bound to it yet |
+| 19 | Worker is the authority on model choice; device sends hints only | partial — 85 tests + hostile bodies against a live worker | — | **verified by tooling** | yes |
+| 20 | Billing backend: `POST /usage`, `GET /usage`, D1 ledger | partial — 85 tests against real D1 in workerd, plus the local `wrangler dev` database serving the live meter | yes | **yes** — totals grow across phrases | yes; the deployed worker binds to the remote database, which is on schema `0001` (see row 46) |
 | 21 | Prices frozen per row, integer micro-USD, local-day windows | partial — unit tested incl. midnight boundaries at ±180 / −300 | — | **verified by tooling** | yes |
 
 ## Build / release
@@ -127,33 +126,30 @@ host/protocol harness, not Settings-driven keyboard activation.
 
 | 49 | Settings fields opted out of autofill, so a password manager no longer offers to save the device secret | device — masking now via PasswordTransformationMethod, not a password input type | yes | **yes** | yes |
 
-## Deployment (attempted 2026-08-01 — blocked on the Cloudflare account)
+## Per-device metering (added 2026-08-04)
 
 | # | Feature | Me | You | Confirmed | In main |
 |---|---|---|---|---|---|
-| 46 | Worker deployed to Cloudflare (`wrangler deploy` + remote D1) | **partial — the database yes, the worker no.** Done and verified: `wrangler d1 create livetype-usage` → `850f00b2-d22f-49ff-bcdb-f0eca6f087da`, real id written into `wrangler.jsonc`, `d1 migrations apply --remote` applied `0001_usage_events.sql` (3 commands, ✅), and a `--remote` `sqlite_master` query confirms `usage_events` plus its index exist in WEUR. **Not done:** `wrangler secret put` and `wrangler deploy` both fail — see the two account gates below. `workers/scripts` on the account lists **0** scripts, so nothing is half-deployed | | | partial — the real `database_id` is on `main`; no worker exists |
-| 47 | Dictation works with **no local worker**: `adb reverse` removed, cable out, endpoint pointing at `https://….workers.dev/token`, over mobile data | no — and **untestable by an assistant in any case**: it is defined by the cable being out and `adb reverse` being gone, which only the person holding the phone can establish. Blocked upstream by row 43 anyway; there is no `https://` URL to point the app at. `EndpointMode.PROD_ENDPOINT` is therefore still `""` and the prod dropdown row is still correctly disabled | | | no |
-| 48 | Live audio through the **deployed** worker (mint `ek_…` from `https://…workers.dev/token`, stream real speech, transcript back, usage landing in remote D1) | no — could not be attempted; there is no deployed URL to mint from. The same test against the **local** `wrangler dev` worker is what rows 19–21 already cover | | | — |
+| 50 | Per-device secrets: one `DEVICE_SECRET_<NAME>` variable per device, the matching id lands in `usage_events.device_id`, `DEVICE_SECRET` still works as `default` | **partial — verified against the deployed worker.** `0002` applied `--remote`; the 32 rows of prior history all read `device_id = "default"`. A `POST /usage` with mom's secret and a planted `"device_id":"default"` in the body stored `"mom"` — identity comes from the secret, as designed. That probe row was deleted afterwards; the ledger is back to 32 rows / $0.202017. Plus 30 worker tests | | | yes |
+| 51 | `GET /usage` scoped per device, plus an owner-only `devices` breakdown that keeps revoked devices' history | **verified live and on the phone.** Mom's secret returns `device_id: "mom"`, `is_owner: false`, its own zeroed windows and no `devices` key. The owner's phone renders `This device: david · you own this Worker` and a **By device** table listing david $0.20, mom $0.00 with `limit $1.00 · $1.00 left today`. The revoked-device case is covered by tests only | yes | **yes** | yes |
+| 52 | Daily spend cap enforced at `POST /token`: `402` with figures, fails closed on an unreadable ledger, uncapped devices skip the query | **partial — the 402 confirmed on the deployed worker** by setting mom's cap to `0` (`POST /token` → 402, `GET /usage` → `cap.usd: 0`), then restoring `{"mom":1}` and confirming 200 again. Fail-closed and uncapped-skips-the-query are covered by tests only. Not triggered from a phone | | | yes |
+| 53 | The keyboard says "daily limit reached" in the user's language rather than showing an HTTP line (`SpendCapReachedException`) | build only — `assembleDebug`/`assembleRelease`/`lintVitalRelease` green, strings present in `()` and `(ru)`. The message has never been provoked on a device | | | yes |
+| 54 | Billing screen shows which device the worker recognised, its limit, and the per-device table | **confirmed on a Pixel 9.** All three parts rendered: the device line with the owner suffix, the per-device table, and a capped device's `limit $1.00 · $1.00 left today`. The device line also earned its keep — reading `This device: default` was what identified a phone still holding a pre-rename secret. Russian wrapping still unchecked (device locale is English) | yes | **yes** | yes |
 
-**The two gates, both needing the account owner:**
+## Deployment
 
-1. **The Cloudflare account's email address is unverified.** Every write to
-   `/accounts/…/workers/scripts/*` returns
-   `10034 — You need to verify your email address to use Workers`
-   (<https://developers.cloudflare.com/fundamentals/setup/account/verify-email-address/>).
-   This is what `wrangler secret put OPENAI_API_KEY` hit. D1 is not gated on it,
-   which is why the database half went through.
-2. **No `workers.dev` subdomain exists** — `GET /workers/subdomain` returns
-   `10007`. `wrangler deploy` stops before uploading anything and offers to
-   register one interactively. Deliberately not answered on the owner's behalf:
-   the subdomain is a permanent, account-wide hostname.
+| # | Feature | Me | You | Confirmed | In main |
+|---|---|---|---|---|---|
+| 46 | Worker deployed to Cloudflare, bound to the remote `livetype-usage` D1 | partial — live and current: the deployed build includes rows 50–54, `0002` is applied `--remote`, and `wrangler secret list` shows `OPENAI_API_KEY`, `DEVICE_SECRET_DAVID`, `DEVICE_SECRET_MOM`, `OWNER_DEVICE_ID`, `DEVICE_CAPS`. `POST /token` returns a client secret for the owner; a random secret gets 401 | yes | **yes** | yes |
+| 47 | Dictation with **no local worker**: `adb reverse` removed, cable out, over mobile data | no — **untestable by an assistant**: it is defined by the cable being out, which only the person holding the phone can establish | | | yes |
+| 48 | Live audio through the **deployed** worker (mint `ek_…`, stream speech, usage landing in the remote D1) | no — an assistant cannot dictate. The same path against the local `wrangler dev` worker is what rows 19–21 cover | | | yes |
 
-Row 44 is the one that actually proves it. Deploying alone is not enough — with
-the tunnel still up the phone can keep hitting localhost and look fine.
+Note that deploying alone does not prove row 47: with the `adb reverse` tunnel
+still up, a phone pointed at localhost keeps working and looks fine.
 
-**When row 43 does clear, the endpoint goes public with no rate limiting.** The
-only guard is a static `DEVICE_SECRET`, which has already leaked once in a
-screen recording. See `OPEN_QUESTIONS.md` A5.
+**The endpoint is public and has no rate limiting.** The only guard is a bearer
+device secret, one of which has leaked in a screen recording. See
+`ARCHITECTURE.md` §5.1.
 
 ## Bugs found, not yet fixed
 
@@ -163,10 +159,12 @@ needs a fix and then a re-test — none of these has been verified as working.
 | # | Bug | How it was found | Fixed? | Re-tested? |
 |---|---|---|---|---|
 | B1 | ~~**The OpenAI indicator never shows the spinner.**~~ **Fixed and confirmed on device.** It goes `IDLE → OK`, skipping `LOADING`, and `IDLE` renders as the red `!` that everywhere else means *failed*. So the entire OpenAI connect — the slow leg — looks like an error. The token-server indicator does spin, which is why this passed a glance. One line in `connectRealtime()`. The unread `INDICATOR_IDLE` constant is the same bug's other half. | code audit against `main`; `git log -S` shows the `LOADING` call was never written, not lost in a merge | **yes** | no |
-| B2 | ~~**`wrangler.jsonc` still has `"database_id": "REPLACE_WITH_ID_FROM_WRANGLER_D1_CREATE"`.**~~ **Fixed** 2026-08-01: `wrangler d1 create livetype-usage` returned `850f00b2-d22f-49ff-bcdb-f0eca6f087da` (region WEUR) and that id is now in the file. | code audit | **yes** | partial — the id is proven correct against the real database (`d1 migrations apply --remote` and a `sqlite_master` query both hit it and report `served_by_region: WEUR`), but it has **not** been exercised through a deployed worker's `DB` binding, because the deploy is blocked (row 43) |
+| B2 | ~~**`wrangler.jsonc` still has `"database_id": "REPLACE_WITH_ID_FROM_WRANGLER_D1_CREATE"`.**~~ **Fixed:** the file carries `850f00b2-d22f-49ff-bcdb-f0eca6f087da` (region WEUR), and the deployed worker binds to it. | code audit | **yes** | **yes** |
 | B3 | **A reused session can outlive OpenAI's own server-side session limit.** Now that one socket serves many phrases, it may hit the server's maximum and close, surfacing as a red "connection closed" where the old per-phrase reconnect quietly hid it. Not observed yet; it is a new failure surface created by multi-phrase reuse. | reasoning by the agent that implemented reuse | no | no |
 | B4 | **Behaviour during a long silenced-microphone gap is unknown.** We now report the silencing honestly, but OpenAI may end the turn on its own during the silence, and nothing in the UI would reveal that. | reasoning; never reproduced | no | no |
 | B5 | **The dictation prompt reverted to English.** `pm clear` reset it to the English default because the device locale is English; it had been the Russian wording. Same instruction semantically, but not the user's setting. `adb shell input text` cannot type Cyrillic, so restoring it needs a few taps by hand. | observed after the clean-install test | no | — |
+| B8 | **Opening the settings screen reverts a stored `PROD` endpoint to `DEV`.** With `endpoint_mode=PROD` and the deployed URL in `SharedPreferences`, opening `MainActivity` rewrites both to `DEV` and `http://127.0.0.1:8787/token` — so the phone silently falls back to a local worker that is usually not running, and dictation then fails. Reproduced twice by writing the prefs and reopening the screen; `BuildConfig.PROD_TOKEN_ENDPOINT` is non-blank in the installed build, so `PROD.isAvailable` is true and the `restoringEndpointMode` guard in `buildEndpointModeSpinner` should have suppressed the write. Root cause not identified. This is the "reverting to prod" symptom row 45 recorded as never reproduced. **Workaround in use on the phone:** `CUSTOM` with the deployed URL typed in, which is what release builds do anyway and which survives reopening. | writing prefs over `run-as` and rereading them after opening the screen, 2026-08-04 | no | no |
+| B7 | **The settings screen draws under the status bar.** The `Context` label overlaps the clock at the top of the screen, so both are unreadable. The scrolling content takes no top window inset. Cosmetic, present in every build, and unrelated to metering — noticed while screenshotting the billing section. | screenshot on a Pixel 9, 2026-08-04 | no | no |
 | B6 | ~~**Status text is indented ~24dp relative to the indicators.**~~ **Fixed** by the left-column rework: the warning icon moved to the far end of the indicator row, so the text starts at the shared left edge. | observed on device | no | — |
 
 ## Known gaps
@@ -181,20 +179,13 @@ Things below are **not** verified and should not be assumed working.
 2. **The silenced-mic UI (#17) has never been seen.** The detection itself is
    confirmed working (#16 — the user saw the message), but the red text and
    warning icon landed afterwards and nobody has looked at that state since.
-3. **The release APK is unsigned**, so it cannot be attached to a GitHub Release
-   as is.
-4. **Long-silence behaviour is unknown.** When the mic is taken mid-dictation,
+3. **Long-silence behaviour is unknown.** When the mic is taken mid-dictation,
    OpenAI may end the turn on its own regardless of what the UI shows. Untested.
-5. **The Worker is still not deployed (#43).** The remote D1 database is real
-   and migrated, and `wrangler.jsonc` carries its actual id — but no Worker
-   script exists in the Cloudflare account (`workers/scripts` lists 0). Two
-   account-level gates stopped it: the account email is unverified (`10034`,
-   which blocks every Worker write including `wrangler secret put`) and no
-   `workers.dev` subdomain has been registered (`10007`). Both need the account
-   owner; see `OPEN_QUESTIONS.md` A1. Until then the phone still needs the
-   cable, and **no secret has been pushed to Cloudflare** — the deployed worker
-   would have neither `OPENAI_API_KEY` nor `DEVICE_SECRET`.
-6. **The deployed endpoint will have no rate limiting.** Accepted deliberately
-   (R8) on the grounds that the OpenAI account has a hard spend cap, so the
-   blast radius of the leaked `DEVICE_SECRET` is bounded by that cap rather
-   than open-ended. Worth revisiting if the cap is ever raised.
+4. **No phone has dictated through mom's secret yet.** Rows 50–54 are confirmed
+   live and the owner's billing screen renders every new field, but the 402 has
+   never been provoked from a keyboard and mom's phone has never held her secret.
+5. **The endpoint has no rate limiting.** Accepted deliberately (R8): the OpenAI
+   project carries a hard spend cap, so the blast radius of a leaked device
+   secret is bounded by that cap. Per-device caps (R19) narrow it further for
+   capped devices, but the owner's own device is uncapped by design. Worth
+   revisiting if the project budget is ever raised.

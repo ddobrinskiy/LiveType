@@ -39,8 +39,10 @@ token.
 Two consequences worth stating plainly:
 
 - **The real API key never leaves the Worker.** The phone authenticates to the
-  Worker with a shared `DEVICE_SECRET` and receives a client secret that
-  expires 60 seconds after it is minted.
+  Worker with a device secret and receives a client secret that expires 60
+  seconds after it is minted. One phone needs one secret; a Worker shared with
+  someone else gives each phone its own, which is what lets the ledger say whose
+  spend is whose — see [Sharing the Worker](#sharing-the-worker-with-someone-else).
 - **Audio never transits the Worker.** The phone opens the Realtime WebSocket
   to OpenAI directly, so the Worker sees no audio and no transcripts — only
   token requests.
@@ -60,6 +62,7 @@ model. Hints are trimmed, de-duplicated and clamped (8 languages, 100 keywords,
 | `data/keywords.txt.age` | The maintainer's personal vocabulary list, encrypted (see below). Nothing needs it. |
 | `scripts/` | `keywords-encrypt.sh` / `keywords-decrypt.sh` for that file. |
 | `android/keystore.properties.age` | The maintainer's release-signing password, encrypted to the same recipient. Nothing needs it either — see [Cutting a release](#cutting-a-release-maintainer). |
+| `worker/.dev.vars.age` | The maintainer's Worker configuration — device secrets, owner, caps, deployed URL — encrypted to the same recipient. Never the OpenAI key. Nothing needs it; you write your own `worker/.dev.vars` from `.dev.vars.example`. |
 | `AGENTS.md` | Architecture notes, the local dev loop, and hard-won API details. |
 
 **`data/keywords.txt.age` is not a secret you are missing.** It is one person's
@@ -173,9 +176,10 @@ Wrangler prints the Worker URL. The app needs it with `/token` appended:
 https://livetype-token.your-account.workers.dev/token
 ```
 
-`POST /token` is the only route; everything else returns 404. A request without
-a matching `X-Device-Secret` header gets 401 (the comparison is
-constant-time over SHA-256 digests).
+There are three routes — `POST /token`, and `POST`/`GET /usage` for the spend
+meter; everything else returns 404. A request without a matching
+`X-Device-Secret` header gets 401 (the comparison is constant-time over SHA-256
+digests).
 
 Smoke-test it before touching the phone — the first call should return JSON
 containing a client secret, the second should return 401:
@@ -262,7 +266,8 @@ key automatically.
 1. Open the LiveType app and grant microphone permission.
 2. **Worker token endpoint** — the `/token` URL from step 1. Release builds
    accept `https://` only.
-3. **Device secret** — the same `DEVICE_SECRET` you put in Cloudflare.
+3. **Device secret** — the `DEVICE_SECRET` you put in Cloudflare, or this
+   phone's own `DEVICE_SECRET_<NAME>` if the Worker serves more than one phone.
 4. **Expected languages** — comma-separated BCP-47-ish codes, e.g. `ru,en`.
 5. **Context** — a free-text prompt describing what you dictate.
 6. **Terms** — domain words the model tends to mangle, one per line. Debug
@@ -275,11 +280,100 @@ Settings are stored in app-private `SharedPreferences` and excluded from cloud
 backup and device transfer.
 
 The **Spending** section at the bottom of the screen shows the price per minute
-of the model the Worker has chosen, and what you spent today, over the last
-7 days and over the last 30 days — whole local calendar days, today included.
-The app reports each session's usage to the Worker and renders the numbers it
-gets back; it computes no prices of its own. It is a meter of what this app
-reported, not an OpenAI invoice.
+of the model the Worker has chosen, and what this device spent today, over the
+last 7 days and over the last 30 days — whole local calendar days, today
+included. It also names the device the Worker recognised the phone as, and shows
+its daily limit if one is set for it. The app reports each session's usage to the
+Worker and renders the numbers it gets back; it computes no prices of its own. It
+is a meter of what this app reported, not an OpenAI invoice.
+
+## Sharing the Worker with someone else
+
+One Worker can serve several phones — your own and, say, a parent's — without
+handing your secret around, and with the ledger keeping each phone's spend
+separate. Two rules make it work:
+
+- **Each phone gets its own secret**, one variable per device named
+  `DEVICE_SECRET_<NAME>`, and the Worker decides *which device* a request came
+  from by seeing which secret matched. Nothing the phone sends can claim an
+  identity, exactly as nothing it sends can pick a costlier model.
+- **A device can be given a daily ceiling.** `POST /token` refuses with `402`
+  once that device has spent its allowance for the day, so the limit is enforced
+  before any charge exists rather than merely recorded afterwards.
+
+### Set it up
+
+Generate a secret per phone and put them in one JSON map:
+
+```bash
+openssl rand -hex 32   # yours
+openssl rand -hex 32   # theirs
+```
+
+```bash
+cd worker
+npx wrangler d1 migrations apply livetype-usage --remote   # adds device_id
+
+# One secret per device. The name after DEVICE_SECRET_ is the device id, and it
+# is what the ledger and the app's Spending section show.
+npx wrangler secret put DEVICE_SECRET_ME
+npx wrangler secret put DEVICE_SECRET_MOM
+
+# Who sees every device's spend rather than only their own.
+npx wrangler secret put OWNER_DEVICE_ID   # e.g. me
+
+# Optional daily allowance in USD: {"mom":1}
+npx wrangler secret put DEVICE_CAPS
+
+npm run deploy
+```
+
+Keep the values in `worker/.dev.vars` (gitignored) so there is one place to look
+them up; `wrangler dev` reads that file, so your local Worker gets the same
+devices without any extra configuration. See `worker/.dev.vars.example`.
+
+The allowance resets at midnight **UTC** unless you say otherwise. To reset it on
+your own clock instead, set `CAP_TZ_OFFSET_MINUTES` — minutes to add to UTC, so
+`180` for Moscow — in `wrangler.jsonc` under `vars`. It is deliberately a server
+setting: a phone that could choose its own day boundary could shift the window
+and hand itself a fresh allowance.
+
+Device ids are the variable's suffix, lower-cased: `DEVICE_SECRET_MOM` is the
+device `mom`. They must match `[a-z0-9_-]{1,32}` and they appear in the app's
+**Spending** section, so pick names you will recognise. A one-phone install can
+keep using a single `DEVICE_SECRET`, which authenticates as `default`.
+
+Then install the **release** APK on their phone and type in the Worker URL and
+*their* secret. Do not hand over a debug build: it bakes in your own secret (see
+[Debug and release builds](#local-development)).
+
+### What each phone sees
+
+- **Their phone** shows its own spend and nothing else, plus its daily limit and
+  what is left of it today if you set one.
+- **Your phone** additionally shows a per-device breakdown. A device whose
+  secret you later remove stays in that list, marked as revoked, because
+  deleting a secret must not rewrite what the month cost.
+
+### Revoking access
+
+Delete that device's variable — `npx wrangler secret delete DEVICE_SECRET_MOM` —
+and remove it from `DEVICE_CAPS`, which refuses to name a device that cannot
+authenticate. That phone gets 401 on its
+next dictation; its history stays in the ledger. Your own secret is untouched, so
+your phone needs no attention — which is the whole point of not sharing one.
+
+### Two things worth knowing before you do this
+
+- **The other phone must sit in an OpenAI-supported country.** It talks to
+  OpenAI directly, so a VPN on *their* phone is the fix; nothing you change on
+  the Worker can help. See `ARCHITECTURE.md` §3.8.1.
+- **There is still no rate limiting.** A cap bounds the money, but not the
+  number of requests before the cap is checked. If you share the Worker widely,
+  add Cloudflare rate limiting on the route.
+- **The cap counts what the app reported.** A dictation whose usage report was
+  lost to a dead network is not counted against it, so treat the cap as a guard
+  rather than an accountant. The OpenAI project budget is the hard ceiling.
 
 ## Using the keyboard
 
@@ -367,9 +461,50 @@ gh release create v0.1.2 \
   app/build/outputs/apk/release/app-release.apk#LiveType-0.1.2.apk
 ```
 
+## The maintainer's own configuration (`worker/.dev.vars.age`)
+
+`worker/.dev.vars` holds the Worker's configuration: one `DEVICE_SECRET_<NAME>`
+per device, `OWNER_DEVICE_ID`, `DEVICE_CAPS` and the deployed Worker's URL.
+`wrangler dev` reads it directly, and debug Android builds bake a device secret
+and the production URL out of it, so it is the one place those values are written
+down — Cloudflare will not read a secret back out.
+
+The plaintext is gitignored. `worker/.dev.vars.age` is the committed copy,
+encrypted to the same age recipient as the keyword list. **It is not a secret you
+are missing**: write your own `worker/.dev.vars` starting from
+`worker/.dev.vars.example`.
+
+**`OPENAI_API_KEY` is deliberately not in either file.** An encrypted live API key
+in a public repository is still a published artifact: repositories are mirrored
+and archived permanently, so the encryption becomes the only thing between that
+key and anyone who later obtains the private key. It lives in Cloudflare and in
+the OpenAI dashboard, both of which can re-issue it, and nothing in this repo
+needs it. The consequence is that `wrangler dev` cannot mint tokens without it —
+add it to `worker/.dev.vars` when you need the local `/token` route.
+
+Restore the configuration on a new machine with:
+
+```bash
+age -d -i ~/.config/chezmoi/key.txt -o worker/.dev.vars -- worker/.dev.vars.age
+chmod 600 worker/.dev.vars
+```
+
+Re-encrypt after any edit — rotating a device secret, adding a device — and
+commit the result. The `grep` is not optional: it is what keeps an
+`OPENAI_API_KEY` you added for local development from reaching the ciphertext.
+
+```bash
+grep -v '^OPENAI_API_KEY=' worker/.dev.vars \
+  | age -r age1aqdf22l6p03g408sg9m9jxu6hwmml0vn9sr7jukff0ty35dwsuuswv9ak4 \
+      -o worker/.dev.vars.age
+```
+
+Note that `age` output is randomised, so the `.age` file changes on every run even
+when nothing in it did. Commit it anyway.
+
 ## Security model
 
-`DEVICE_SECRET` is a shared secret baked into your phone's settings. It keeps
+A device secret is a bearer credential stored in your phone's settings. It keeps
 strangers off your token endpoint, but anyone who can read the device's app
 data — or an APK you configured and handed over — can extract it. That is an
 acceptable trade for a personal sideloaded keyboard when combined with:
@@ -377,7 +512,11 @@ acceptable trade for a personal sideloaded keyboard when combined with:
 - a dedicated OpenAI project with a low monthly budget and alerts;
 - the 60-second lifetime on ephemeral client secrets;
 - Cloudflare rate limiting on the Worker route;
-- rotating `DEVICE_SECRET` (redeploy + re-enter in the app) if a phone is lost.
+- one secret per phone, so a lost phone is revoked on its own (see
+  [Sharing the Worker](#sharing-the-worker-with-someone-else)) rather than
+  forcing every other phone to be re-entered;
+- a per-device daily cap, which bounds what a leaked secret can spend even
+  before you notice it leaked.
 
 Publishing the APK is fine, and is what the Releases page does: the release
 build ships no endpoint and no secret, so each user points it at a Worker they

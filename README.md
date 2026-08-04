@@ -62,6 +62,7 @@ model. Hints are trimmed, de-duplicated and clamped (8 languages, 100 keywords,
 | `data/keywords.txt.age` | The maintainer's personal vocabulary list, encrypted (see below). Nothing needs it. |
 | `scripts/` | `keywords-encrypt.sh` / `keywords-decrypt.sh` for that file. |
 | `android/keystore.properties.age` | The maintainer's release-signing password, encrypted to the same recipient. Nothing needs it either — see [Cutting a release](#cutting-a-release-maintainer). |
+| `worker/.dev.vars.age` | The maintainer's Worker configuration — device secrets, owner, caps, deployed URL — encrypted to the same recipient. Never the OpenAI key. Nothing needs it; you write your own `worker/.dev.vars` from `.dev.vars.example`. |
 | `AGENTS.md` | Architecture notes, the local dev loop, and hard-won API details. |
 
 **`data/keywords.txt.age` is not a secret you are missing.** It is one person's
@@ -459,6 +460,47 @@ git tag -a v0.1.2 -m 'LiveType 0.1.2' && git push origin v0.1.2
 gh release create v0.1.2 \
   app/build/outputs/apk/release/app-release.apk#LiveType-0.1.2.apk
 ```
+
+## The maintainer's own configuration (`worker/.dev.vars.age`)
+
+`worker/.dev.vars` holds the Worker's configuration: one `DEVICE_SECRET_<NAME>`
+per device, `OWNER_DEVICE_ID`, `DEVICE_CAPS` and the deployed Worker's URL.
+`wrangler dev` reads it directly, and debug Android builds bake a device secret
+and the production URL out of it, so it is the one place those values are written
+down — Cloudflare will not read a secret back out.
+
+The plaintext is gitignored. `worker/.dev.vars.age` is the committed copy,
+encrypted to the same age recipient as the keyword list. **It is not a secret you
+are missing**: write your own `worker/.dev.vars` starting from
+`worker/.dev.vars.example`.
+
+**`OPENAI_API_KEY` is deliberately not in either file.** An encrypted live API key
+in a public repository is still a published artifact: repositories are mirrored
+and archived permanently, so the encryption becomes the only thing between that
+key and anyone who later obtains the private key. It lives in Cloudflare and in
+the OpenAI dashboard, both of which can re-issue it, and nothing in this repo
+needs it. The consequence is that `wrangler dev` cannot mint tokens without it —
+add it to `worker/.dev.vars` when you need the local `/token` route.
+
+Restore the configuration on a new machine with:
+
+```bash
+age -d -i ~/.config/chezmoi/key.txt -o worker/.dev.vars -- worker/.dev.vars.age
+chmod 600 worker/.dev.vars
+```
+
+Re-encrypt after any edit — rotating a device secret, adding a device — and
+commit the result. The `grep` is not optional: it is what keeps an
+`OPENAI_API_KEY` you added for local development from reaching the ciphertext.
+
+```bash
+grep -v '^OPENAI_API_KEY=' worker/.dev.vars \
+  | age -r age1aqdf22l6p03g408sg9m9jxu6hwmml0vn9sr7jukff0ty35dwsuuswv9ak4 \
+      -o worker/.dev.vars.age
+```
+
+Note that `age` output is randomised, so the `.age` file changes on every run even
+when nothing in it did. Commit it anyway.
 
 ## Security model
 

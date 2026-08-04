@@ -104,8 +104,21 @@ store, so `wrangler dev` and production see the same devices. See
 [Per-device secrets and caps](#per-device-secrets-and-caps).
 
 **`worker/.dev.vars` is the one place device secrets are written down.** It is
-gitignored; nothing else on disk holds them, and they are not recoverable from
-Cloudflare.
+gitignored and Cloudflare will not read a secret back out, so the only backup is
+`worker/.dev.vars.age`, the committed copy encrypted to the maintainer's age
+recipient. Re-encrypt and commit it after any edit — see
+[the README](README.md#the-maintainers-own-configuration-workerdevvarsage):
+
+```bash
+grep -v '^OPENAI_API_KEY=' worker/.dev.vars \
+  | age -r age1aqdf22l6p03g408sg9m9jxu6hwmml0vn9sr7jukff0ty35dwsuuswv9ak4 \
+      -o worker/.dev.vars.age
+```
+
+**Keep the `grep`.** `OPENAI_API_KEY` must not reach the ciphertext: an encrypted
+live API key in a public repository is still published, and archives are forever.
+The filter means the key can sit in `.dev.vars` for `wrangler dev` without ever
+being committed. Without the key, `wrangler dev` returns 401 from `/token`.
 
 The Android **debug** build also reads this file and bakes `DEVICE_SECRET` in —
 see [Debug vs release configuration](#debug-vs-release-configuration).

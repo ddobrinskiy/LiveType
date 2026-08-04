@@ -266,8 +266,7 @@ key automatically.
 2. **Worker token endpoint** — the `/token` URL from step 1. Release builds
    accept `https://` only.
 3. **Device secret** — the `DEVICE_SECRET` you put in Cloudflare, or this
-   phone's own entry from `DEVICE_SECRETS` if the Worker serves more than one
-   phone.
+   phone's own `DEVICE_SECRET_<NAME>` if the Worker serves more than one phone.
 4. **Expected languages** — comma-separated BCP-47-ish codes, e.g. `ru,en`.
 5. **Context** — a free-text prompt describing what you dictate.
 6. **Terms** — domain words the model tends to mangle, one per line. Debug
@@ -293,9 +292,10 @@ One Worker can serve several phones — your own and, say, a parent's — withou
 handing your secret around, and with the ledger keeping each phone's spend
 separate. Two rules make it work:
 
-- **Each phone gets its own secret**, and the Worker decides *which device* a
-  request came from by seeing which secret matched. Nothing the phone sends can
-  claim an identity, exactly as nothing it sends can pick a costlier model.
+- **Each phone gets its own secret**, one variable per device named
+  `DEVICE_SECRET_<NAME>`, and the Worker decides *which device* a request came
+  from by seeing which secret matched. Nothing the phone sends can claim an
+  identity, exactly as nothing it sends can pick a costlier model.
 - **A device can be given a daily ceiling.** `POST /token` refuses with `402`
   once that device has spent its allowance for the day, so the limit is enforced
   before any charge exists rather than merely recorded afterwards.
@@ -313,11 +313,13 @@ openssl rand -hex 32   # theirs
 cd worker
 npx wrangler d1 migrations apply livetype-usage --remote   # adds device_id
 
-# {"david":"<your 64 hex>","mom":"<their 64 hex>"} — one line, no spaces needed
-npx wrangler secret put DEVICE_SECRETS
+# One secret per device. The name after DEVICE_SECRET_ is the device id, and it
+# is what the ledger and the app's Spending section show.
+npx wrangler secret put DEVICE_SECRET_ME
+npx wrangler secret put DEVICE_SECRET_MOM
 
 # Who sees every device's spend rather than only their own.
-npx wrangler secret put OWNER_DEVICE_ID   # e.g. david
+npx wrangler secret put OWNER_DEVICE_ID   # e.g. me
 
 # Optional daily allowance in USD: {"mom":1}
 npx wrangler secret put DEVICE_CAPS
@@ -325,14 +327,20 @@ npx wrangler secret put DEVICE_CAPS
 npm run deploy
 ```
 
+Keep the values in `worker/.dev.vars` (gitignored) so there is one place to look
+them up; `wrangler dev` reads that file, so your local Worker gets the same
+devices without any extra configuration. See `worker/.dev.vars.example`.
+
 The allowance resets at midnight **UTC** unless you say otherwise. To reset it on
 your own clock instead, set `CAP_TZ_OFFSET_MINUTES` — minutes to add to UTC, so
 `180` for Moscow — in `wrangler.jsonc` under `vars`. It is deliberately a server
 setting: a phone that could choose its own day boundary could shift the window
 and hand itself a fresh allowance.
 
-Device ids are lowercase `[a-z0-9_-]`, up to 32 characters. They appear in the
-app's **Spending** section, so pick names you will recognise.
+Device ids are the variable's suffix, lower-cased: `DEVICE_SECRET_MOM` is the
+device `mom`. They must match `[a-z0-9_-]{1,32}` and they appear in the app's
+**Spending** section, so pick names you will recognise. A one-phone install can
+keep using a single `DEVICE_SECRET`, which authenticates as `default`.
 
 Then install the **release** APK on their phone and type in the Worker URL and
 *their* secret. Do not hand over a debug build: it bakes in your own secret (see
@@ -348,8 +356,9 @@ Then install the **release** APK on their phone and type in the Worker URL and
 
 ### Revoking access
 
-Remove the entry from `DEVICE_SECRETS` (and from `DEVICE_CAPS`, which refuses to
-name a device that cannot authenticate) and redeploy. That phone gets 401 on its
+Delete that device's variable — `npx wrangler secret delete DEVICE_SECRET_MOM` —
+and remove it from `DEVICE_CAPS`, which refuses to name a device that cannot
+authenticate. That phone gets 401 on its
 next dictation; its history stays in the ledger. Your own secret is untouched, so
 your phone needs no attention — which is the whole point of not sharing one.
 

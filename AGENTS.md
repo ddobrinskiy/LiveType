@@ -95,10 +95,17 @@ OPENAI_API_KEY=sk-project-...
 DEVICE_SECRET=<random 32+ hex chars>
 ```
 
-`DEVICE_SECRET` alone is the single-device setup, and it authenticates as the
-device id `default`. For more than one device see
-[Per-device secrets and caps](#per-device-secrets-and-caps); locally you can add
-`DEVICE_SECRETS`, `OWNER_DEVICE_ID` and `DEVICE_CAPS` to the same file.
+That is the single-device shape, and it authenticates as the device id `default`.
+The real file uses one variable per device instead —
+`DEVICE_SECRET_DAVID`, `DEVICE_SECRET_MOM`, plus `OWNER_DEVICE_ID` and
+`DEVICE_CAPS` — which is exactly what the deployed Worker holds in its secret
+store, so `wrangler dev` and production see the same devices. See
+`worker/.dev.vars.example` and
+[Per-device secrets and caps](#per-device-secrets-and-caps).
+
+**`worker/.dev.vars` is the one place device secrets are written down.** It is
+gitignored; nothing else on disk holds them, and they are not recoverable from
+Cloudflare.
 
 The Android **debug** build also reads this file and bakes `DEVICE_SECRET` in —
 see [Debug vs release configuration](#debug-vs-release-configuration).
@@ -470,8 +477,8 @@ Four env vars, all optional, all read through one `parseDeviceConfig(env)`:
 
 | Var | Shape | What it does |
 |---|---|---|
-| `DEVICE_SECRET` | one secret | The original single-device path. Authenticates as the device id `default`, which is also what migration `0002` backfilled onto pre-existing rows. |
-| `DEVICE_SECRETS` | `{"david":"…","mom":"…"}` | One secret per device. Ids are `[a-z0-9_-]{1,32}`; secrets are 24–512 characters. |
+| `DEVICE_SECRET` | one secret | The single-device path. Authenticates as the device id `default`, which is also what migration `0002` backfilled onto pre-existing rows. |
+| `DEVICE_SECRET_<NAME>` | one variable per device | The suffix, lower-cased, is the device id: `DEVICE_SECRET_MOM` → `mom`. Ids match `[a-z0-9_-]{1,32}`; secrets are 24–512 characters. Blank means "not configured" rather than broken. |
 | `OWNER_DEVICE_ID` | `"david"` | Who sees the `devices` breakdown. Unset falls back to `default` **if that device exists**, else nobody. |
 | `DEVICE_CAPS` | `{"mom":1}` | **Daily** allowance in USD, enforced at `POST /token`. Absent id means uncapped. |
 | `CAP_TZ_OFFSET_MINUTES` | `"180"` | Minutes to add to UTC for the cap's day boundary. Defaults to UTC. Junk falls back to UTC rather than failing. |
@@ -480,7 +487,9 @@ Two rules that are easy to break when editing this code:
 
 1. **Identity comes from which secret matched, never from the request.**
    `authoriseDevice` returns the device id, and that is what goes in the ledger.
-   The same reasoning as `model` (§3.2 of ARCHITECTURE.md).
+   The same reasoning as `model` (§3.2 of ARCHITECTURE.md). The registry is built
+   by scanning `env` for the `DEVICE_SECRET_` prefix, so a device is added or
+   revoked with one `wrangler secret put`/`delete` and no code change.
 2. **A configuration that does not parse takes every route to
    `500 Worker is misconfigured`.** Deliberately loud: the alternative is a typo
    like `{"mum":1}` silently leaving `mom` uncapped. Two exceptions —
@@ -508,9 +517,10 @@ the phone's value: a device that picks its own boundary can shift the window and
 give itself a fresh allowance. The response publishes the boundary it used
 (`period`, `period_tz_offset_minutes`) so the UI can say which day it means.
 
-Testing this locally needs `DEVICE_SECRETS` in `.dev.vars`; note the Android
-debug build only bakes in `DEVICE_SECRET`, so a debug phone is always `default`
-unless you type another secret into the app by hand.
+Testing this locally needs the same variables in `.dev.vars`, which `wrangler dev`
+reads directly. The Android debug build bakes in `DEVICE_SECRET` if present and
+otherwise the **first** `DEVICE_SECRET_*` entry in the file, so keep your own
+phone's first (`readDebugDeviceSecret` in `app/build.gradle.kts`).
 
 ### Where the numbers come from
 
@@ -562,7 +572,7 @@ body is ignored exactly as `model` is. See
 | 202 | `{"ok":true,"duplicate":true}` | `item_id` already stored — retries are free |
 | 400 | `{"error":"<reason>"}` | malformed body, bad `item_id`, unknown `usage.type`, non-numeric/negative/out-of-range quantity |
 | 401 | `{"error":"Unauthorized"}` | wrong or missing device secret |
-| 500 | `{"error":"Worker is misconfigured"}` | no `DB` binding, an off-allowlist `TRANSCRIPTION_MODEL`, or a `DEVICE_SECRETS`/`DEVICE_CAPS`/`OWNER_DEVICE_ID` that does not parse |
+| 500 | `{"error":"Worker is misconfigured"}` | no `DB` binding, an off-allowlist `TRANSCRIPTION_MODEL`, or a `DEVICE_SECRET_*`/`DEVICE_CAPS`/`OWNER_DEVICE_ID` that does not parse |
 
 A single commit is capped at **14400 s** (or 144000 audio tokens) so one bad
 row cannot poison the chart. `item_id` is the primary key, so the phone's retry

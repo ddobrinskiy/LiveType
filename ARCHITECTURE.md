@@ -571,10 +571,14 @@ Sharing the Worker with a second person (the case that prompted this: a parent's
 phone) needed the ledger to answer "whose spend is this", and needed a way to
 stop that phone spending without bound. Both hang off the same decision.
 
-**Identity is which secret matched, never what the device claims.** `DEVICE_SECRETS`
-is a JSON map of device id → secret; `authoriseDevice` returns the id whose
-secret authenticated, and that id is what `POST /usage` writes into
-`usage_events.device_id`. A `device_id` in the request body is ignored, for the
+**Identity is which secret matched, never what the device claims.** One variable
+per device, `DEVICE_SECRET_<NAME>`, discovered by scanning `env` for that prefix;
+`authoriseDevice` returns the id whose secret authenticated, and that id is what
+`POST /usage` writes into `usage_events.device_id`. The binding name carries the
+identity, so there is no JSON to quote, nothing to re-serialise when a device is
+added, and — because `wrangler dev` reads `.dev.vars` exactly as the deployed
+Worker reads its secret store — the local and deployed configurations have the
+same shape rather than merely similar ones. A `device_id` in the request body is ignored, for the
 same reason a `model` in it is (§3.2): a self-reported identity turns the ledger
 into a self-report, and lets one device write rows under another's name.
 
@@ -588,14 +592,15 @@ lets an attacker mint any identity.
 
 `DEVICE_SECRET` also works, and authenticates as the device id `default` — which
 is what `0002`'s column default puts on rows written before the column existed.
-A single-phone install therefore needs neither `DEVICE_SECRETS` nor any change on
+A single-phone install therefore needs no per-device variable and no change on
 the phone, and its history belongs to `default`.
 
 **Configuration is validated as a whole, and refuses to be half-understood.**
-`parseDeviceConfig` rejects a malformed secrets map, a device id outside
+`parseDeviceConfig` rejects a device name whose lower-cased form falls outside
 `[a-z0-9_-]{1,32}`, a secret shorter than 24 characters or longer than the 512
-`secureEquals` will compare, two devices sharing one secret, a cap on a device
-that cannot authenticate, and an `OWNER_DEVICE_ID` naming no device. Every one of
+`secureEquals` will compare, two variables naming the same device (reachable
+through case alone), two devices sharing one secret, a cap on a device that
+cannot authenticate, and an `OWNER_DEVICE_ID` naming no device. Every one of
 those surfaces as `500 Worker is misconfigured` on *every* route, exactly as a
 bad `TRANSCRIPTION_MODEL` already does.
 
@@ -608,10 +613,14 @@ recoverable. Two exceptions to the loudness, both deliberate:
 - **No secrets configured at all** is not an error. It yields an empty registry,
   which matches nothing, so every request gets 401 — the fail-closed behaviour a
   blank `DEVICE_SECRET` always had.
+- **A blank per-device variable means "not configured", not "broken".** That
+  device cannot authenticate, which fails closed for one device instead of taking
+  the whole worker down for every other. A value that is present but unusable is
+  a different thing and is rejected.
 - **`DEVICE_SECRET` is exempt from the length rule.** It is a deployed
   credential; refusing to serve a short one would lock the owner out of their own
-  worker rather than improve it. `DEVICE_SECRETS` entries are authored knowingly
-  and are checked.
+  worker rather than improve it. `DEVICE_SECRET_<NAME>` values are authored
+  knowingly and are checked.
 
 **The cap is enforced at `/token`, because that is the only place spending can be
 prevented rather than recorded.** No ephemeral token means no session and no

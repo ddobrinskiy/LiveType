@@ -1186,13 +1186,18 @@ describe("GET /usage", () => {
 /* ------------------------------------------------------------ two devices */
 
 /** Two named devices and no legacy secret, i.e. the shape after the migration. */
-function namedEnv(overrides: Partial<Env> = {}): Env {
-  return testEnv({
-    DEVICE_SECRET: "",
-    DEVICE_SECRETS: JSON.stringify({ david: DAVID_SECRET, mom: MOM_SECRET }),
-    OWNER_DEVICE_ID: "david",
+function namedEnv(overrides: Record<string, unknown> = {}): Env {
+  return {
+    ...testEnv({ DEVICE_SECRET: "", OWNER_DEVICE_ID: "david" }),
+    DEVICE_SECRET_DAVID: DAVID_SECRET,
+    DEVICE_SECRET_MOM: MOM_SECRET,
     ...overrides,
-  });
+  } as Env;
+}
+
+/** `Env` declares no per-device fields, so tests set them through a cast. */
+function envWith(overrides: Record<string, unknown>): Env {
+  return { ...testEnv({ DEVICE_SECRET: "" }), ...overrides } as Env;
 }
 
 function configOf(env: Env) {
@@ -1216,11 +1221,28 @@ describe("parseDeviceConfig", () => {
     expect(config.ownerDeviceId).toBe("default");
   });
 
-  it("reads a JSON map of per-device secrets alongside the legacy one", () => {
+  it("reads one variable per device alongside the legacy one", () => {
     const config = configOf(
-      testEnv({ DEVICE_SECRETS: JSON.stringify({ mom: MOM_SECRET }) }),
+      envWith({ DEVICE_SECRET: SECRET, DEVICE_SECRET_MOM: MOM_SECRET }),
     );
     expect([...config.devices.keys()].sort()).toEqual(["default", "mom"]);
+  });
+
+  it("lower-cases the variable's suffix to get the device id", () => {
+    const config = configOf(envWith({ DEVICE_SECRET_MOM: MOM_SECRET }));
+    expect([...config.devices.keys()]).toEqual(["mom"]);
+  });
+
+  it("accepts underscores and digits in a device name", () => {
+    const config = configOf(envWith({ DEVICE_SECRET_MOMS_PIXEL_9: MOM_SECRET }));
+    expect([...config.devices.keys()]).toEqual(["moms_pixel_9"]);
+  });
+
+  it("ignores DEVICE_SECRET itself when scanning for the prefix", () => {
+    // "DEVICE_SECRET" has no trailing underscore, so it must not be read as a
+    // device named "" — it is the legacy single-device secret.
+    const config = configOf(envWith({ DEVICE_SECRET: SECRET }));
+    expect([...config.devices.keys()]).toEqual(["default"]);
   });
 
   it("has no owner once the legacy device is gone and none is named", () => {
@@ -1234,37 +1256,49 @@ describe("parseDeviceConfig", () => {
     expect(config.devices.size).toBe(0);
   });
 
-  it("refuses a device id and a secret that cannot work", () => {
-    const cases: Array<[string, unknown]> = [
-      ["an uppercase id", { Mom: MOM_SECRET }],
-      ["a dotted id", { "mom.phone": MOM_SECRET }],
-      ["an empty id", { "": MOM_SECRET }],
-      ["an over-long id", { ["m".repeat(33)]: MOM_SECRET }],
-      ["a short secret", { mom: "too-short" }],
-      ["a secret secureEquals would refuse", { mom: "x".repeat(513) }],
-      ["a non-string secret", { mom: 12345 }],
+  it("refuses a device name and a secret that cannot work", () => {
+    const cases: Array<[string, Record<string, unknown>]> = [
+      ["a dotted name", { "DEVICE_SECRET_MOM.PHONE": MOM_SECRET }],
+      ["an empty name", { DEVICE_SECRET_: MOM_SECRET }],
+      ["an over-long name", { [`DEVICE_SECRET_${"M".repeat(33)}`]: MOM_SECRET }],
+      ["a short secret", { DEVICE_SECRET_MOM: "too-short" }],
+      ["a secret secureEquals would refuse", { DEVICE_SECRET_MOM: "x".repeat(513) }],
+      ["a non-string secret", { DEVICE_SECRET_MOM: 12345 }],
     ];
-    for (const [label, secrets] of cases) {
-      const env = testEnv({ DEVICE_SECRET: "", DEVICE_SECRETS: JSON.stringify(secrets) });
-      expect(errorOf(env), label).toBeTruthy();
+    for (const [label, vars] of cases) {
+      expect(errorOf(envWith(vars)), label).toBeTruthy();
     }
   });
 
-  it("rejects a payload that is not a JSON object of secrets", () => {
-    expect(errorOf(testEnv({ DEVICE_SECRETS: "{not json" }))).toContain("not valid JSON");
-    expect(errorOf(testEnv({ DEVICE_SECRETS: "[]" }))).toContain("must be a JSON object");
-    expect(errorOf(testEnv({ DEVICE_SECRETS: "null" }))).toContain("must be a JSON object");
+  it("treats a blank per-device variable as not configured", () => {
+    // An emptied variable must not 500 the worker for every other device.
+    const config = configOf(
+      envWith({ DEVICE_SECRET_DAVID: DAVID_SECRET, DEVICE_SECRET_MOM: "   " }),
+    );
+    expect([...config.devices.keys()]).toEqual(["david"]);
   });
 
-  it("rejects DEVICE_SECRET and DEVICE_SECRETS both claiming 'default'", () => {
-    const env = testEnv({ DEVICE_SECRETS: JSON.stringify({ default: MOM_SECRET }) });
+  it("rejects two variables that name the same device", () => {
+    // Reachable through case alone, and it would make device_id a coin flip.
+    const env = envWith({
+      DEVICE_SECRET_MOM: MOM_SECRET,
+      DEVICE_SECRET_mom: DAVID_SECRET,
+    });
+    expect(errorOf(env)).toContain("both name the device");
+  });
+
+  it("rejects DEVICE_SECRET and DEVICE_SECRET_DEFAULT together", () => {
+    const env = envWith({
+      DEVICE_SECRET: SECRET,
+      DEVICE_SECRET_DEFAULT: MOM_SECRET,
+    });
     expect(errorOf(env)).toContain("both define");
   });
 
   it("rejects two devices sharing one secret, and names neither", () => {
-    const env = testEnv({
-      DEVICE_SECRET: "",
-      DEVICE_SECRETS: JSON.stringify({ david: MOM_SECRET, mom: MOM_SECRET }),
+    const env = envWith({
+      DEVICE_SECRET_DAVID: MOM_SECRET,
+      DEVICE_SECRET_MOM: MOM_SECRET,
     });
     const error = errorOf(env);
     expect(error).toContain("same secret");
@@ -1428,10 +1462,9 @@ describe("per-device usage", () => {
     vi.setSystemTime(NOON);
     await postUsage({ item_id: "item_m", usage: duration(60) }, { secret: MOM_SECRET, env });
 
-    // Mom's secret is removed — the way revocation actually happens.
-    const revoked = namedEnv({
-      DEVICE_SECRETS: JSON.stringify({ david: DAVID_SECRET }),
-    });
+    // Mom's variable is removed — the way revocation actually happens.
+    const revoked = namedEnv();
+    delete (revoked as unknown as Record<string, unknown>).DEVICE_SECRET_MOM;
     expect(
       (await postUsage({ item_id: "item_m2", usage: duration(60) }, {
         secret: MOM_SECRET,

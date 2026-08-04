@@ -6,15 +6,15 @@ export interface Env {
    * existed. A one-phone install needs only this.
    */
   DEVICE_SECRET?: string;
-  /**
-   * JSON object of device id -> secret, e.g. `{"david":"…","mom":"…"}`. This is
-   * how a second person gets access without holding the owner's secret, and how
-   * the ledger learns whose spend a row is. Ids match DEVICE_ID_PATTERN.
-   *
-   * Adding or revoking a device is one `wrangler secret put DEVICE_SECRETS`; no
-   * code change and no schema change is involved.
-   */
-  DEVICE_SECRETS?: string;
+  //
+  // Per-device secrets are **not** fields of this interface. One variable per
+  // device, named `DEVICE_SECRET_<NAME>` — `DEVICE_SECRET_MOM` holds the secret
+  // for the device `mom` — and `parseDeviceConfig` discovers them by scanning
+  // `env` for that prefix, because the set of devices is configuration rather
+  // than code. Adding or revoking one is a single `wrangler secret put` (or
+  // `delete`), with no code and no schema change. The lower-cased suffix must
+  // match DEVICE_ID_PATTERN.
+  //
   /**
    * Which device id may read the per-device breakdown from `GET /usage`.
    * Defaults to "default" when that device exists, otherwise to nobody.
@@ -467,6 +467,9 @@ const LEGACY_DEVICE_ID = "default";
  */
 const DEVICE_ID_PATTERN = /^[a-z0-9_-]{1,32}$/;
 
+/** Prefix that marks an environment variable as one device's secret. */
+const DEVICE_SECRET_PREFIX = "DEVICE_SECRET_";
+
 /** `openssl rand -hex 16` clears this comfortably. */
 const MIN_DEVICE_SECRET_CHARS = 24;
 
@@ -517,41 +520,56 @@ export type DeviceConfigResult =
 export function parseDeviceConfig(env: Env): DeviceConfigResult {
   const devices = new Map<string, string>();
 
-  const raw = env.DEVICE_SECRETS?.trim();
-  if (raw) {
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(raw);
-    } catch {
-      return { ok: false, error: "DEVICE_SECRETS is not valid JSON" };
+  // One variable per device: DEVICE_SECRET_MOM holds the device `mom`. The
+  // binding name carries the identity, so there is no JSON to quote, nothing to
+  // re-serialise when a device is added, and — because `wrangler dev` reads
+  // `.dev.vars` the same way the deployed Worker reads its secret store — the
+  // local and deployed configurations have exactly the same shape.
+  //
+  // Sorted so the registry is built in a deterministic order regardless of how
+  // the runtime happens to enumerate the environment.
+  const entries = Object.entries(env as unknown as Record<string, unknown>)
+    .filter(([key]) => key.startsWith(DEVICE_SECRET_PREFIX))
+    .sort(([left], [right]) => left.localeCompare(right));
+
+  for (const [key, secret] of entries) {
+    // Absent or blank means "not configured", exactly as it does for
+    // DEVICE_SECRET: that device cannot authenticate, which fails closed for one
+    // device rather than taking the whole worker down for everyone. A value that
+    // is present but unusable is a different thing and is rejected below.
+    if (secret === undefined || secret === null) continue;
+    if (typeof secret === "string" && secret.trim().length === 0) continue;
+
+    // Env names are conventionally upper case and device ids are lower case, so
+    // the suffix is lowered rather than required to be lower already.
+    const id = key.slice(DEVICE_SECRET_PREFIX.length).toLowerCase();
+    if (!DEVICE_ID_PATTERN.test(id)) {
+      return { ok: false, error: `"${key}" is not a usable device name` };
     }
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      return { ok: false, error: "DEVICE_SECRETS must be a JSON object" };
+    if (
+      typeof secret !== "string" ||
+      secret.length < MIN_DEVICE_SECRET_CHARS ||
+      secret.length > MAX_DEVICE_SECRET_CHARS
+    ) {
+      return { ok: false, error: `Device "${id}" has an unusable secret` };
     }
-    for (const [id, secret] of Object.entries(parsed as Record<string, unknown>)) {
-      if (!DEVICE_ID_PATTERN.test(id)) {
-        return { ok: false, error: `DEVICE_SECRETS has an invalid device id` };
-      }
-      if (
-        typeof secret !== "string" ||
-        secret.length < MIN_DEVICE_SECRET_CHARS ||
-        secret.length > MAX_DEVICE_SECRET_CHARS
-      ) {
-        return { ok: false, error: `Device "${id}" has an unusable secret` };
-      }
-      devices.set(id, secret);
+    // Reachable through case alone — DEVICE_SECRET_MOM and DEVICE_SECRET_mom
+    // both name `mom` — which would make the ledger's device_id a coin flip.
+    if (devices.has(id)) {
+      return { ok: false, error: `Two variables both name the device "${id}"` };
     }
+    devices.set(id, secret);
   }
 
-  // Deliberately not length-checked: this secret predates the rule and is
-  // already deployed. Enforcing MIN_DEVICE_SECRET_CHARS on it could lock the
+  // Deliberately not length-checked: this secret predates the rule and may
+  // already be deployed. Enforcing MIN_DEVICE_SECRET_CHARS on it could lock the
   // owner out of their own worker on the deploy that introduced the check.
   const legacy = env.DEVICE_SECRET ?? "";
   if (legacy.trim().length > 0) {
     if (devices.has(LEGACY_DEVICE_ID)) {
       return {
         ok: false,
-        error: `DEVICE_SECRET and DEVICE_SECRETS both define "${LEGACY_DEVICE_ID}"`,
+        error: `DEVICE_SECRET and DEVICE_SECRET_${LEGACY_DEVICE_ID.toUpperCase()} both define "${LEGACY_DEVICE_ID}"`,
       };
     }
     devices.set(LEGACY_DEVICE_ID, legacy);

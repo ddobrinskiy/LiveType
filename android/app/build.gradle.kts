@@ -5,11 +5,11 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
-// Debug convenience: bake the local dev endpoint + DEVICE_SECRET into debug
+// Debug convenience: bake the local dev endpoint + one device secret into debug
 // builds so an adb install is immediately usable without retyping them on the
 // phone. Reads worker/.dev.vars (gitignored). Absent file -> empty strings, no
-// failure: fresh clones and CI must still build. Only DEVICE_SECRET is read;
-// OPENAI_API_KEY never leaves the worker.
+// failure: fresh clones and CI must still build. Only a device secret is read
+// (see readDebugDeviceSecret); OPENAI_API_KEY never leaves the worker.
 val devVarsFile = rootProject.file("../worker/.dev.vars")
 
 fun readDevVar(name: String): String {
@@ -69,7 +69,36 @@ val debugKeywords: String = providers.fileContents(keywordsFile).asText.orNull
     ?.joinToString("\n")
     .orEmpty()
 
-val debugDeviceSecret = readDevVar("DEVICE_SECRET")
+/**
+ * The secret a debug build bakes in, so an `adb install` is usable without
+ * retyping it. Prefers the legacy single `DEVICE_SECRET`; otherwise takes the
+ * first `DEVICE_SECRET_<NAME>` entry in the file, which is the convention the
+ * Worker reads — one variable per device. Put your own phone's first.
+ *
+ * No device name is hard-coded here on purpose: this file is public and the
+ * names are the maintainer's.
+ */
+fun readDebugDeviceSecret(): String {
+    val legacy = readDevVar("DEVICE_SECRET")
+    if (legacy.isNotEmpty()) return legacy
+    if (!devVarsFile.isFile) return ""
+    return devVarsFile.readLines()
+        .asSequence()
+        .map(String::trim)
+        .filterNot { it.isEmpty() || it.startsWith("#") }
+        .mapNotNull { line ->
+            val separator = line.indexOf('=')
+            if (separator <= 0) return@mapNotNull null
+            if (!line.substring(0, separator).trim().startsWith("DEVICE_SECRET_")) {
+                return@mapNotNull null
+            }
+            line.substring(separator + 1).trim().trim('"', '\'').ifEmpty { null }
+        }
+        .firstOrNull()
+        .orEmpty()
+}
+
+val debugDeviceSecret = readDebugDeviceSecret()
 val debugTokenEndpoint = "http://127.0.0.1:8787/token"
 
 // The deployed worker's URL is deliberately NOT in the repo: this is a public

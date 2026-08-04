@@ -69,8 +69,19 @@ val debugKeywords: String = providers.fileContents(keywordsFile).asText.orNull
     ?.joinToString("\n")
     .orEmpty()
 
-val debugDeviceSecret = readDevVar("DEVICE_SECRET")
-val debugTokenEndpoint = "http://127.0.0.1:8787/token"
+val e2eMode = providers.gradleProperty("livetypeE2e").orNull == "true"
+val e2ePort = providers.gradleProperty("livetypeE2ePort").orNull ?: "8788"
+val debugDeviceSecret = if (e2eMode) "e2e-device-secret" else readDevVar("DEVICE_SECRET")
+val debugTokenEndpoint = if (e2eMode) {
+    "http://10.0.2.2:$e2ePort/token"
+} else {
+    "http://127.0.0.1:8787/token"
+}
+val debugRealtimeUrl = if (e2eMode) {
+    "ws://10.0.2.2:$e2ePort/realtime"
+} else {
+    "wss://api.openai.com/v1/realtime"
+}
 
 // The deployed worker's URL is deliberately NOT in the repo: this is a public
 // repository and a worker URL is a live endpoint someone could hammer. It
@@ -137,6 +148,7 @@ android {
             buildConfigField("String", "DEFAULT_DEVICE_SECRET", javaStringLiteral(debugDeviceSecret))
             buildConfigField("String", "DEFAULT_KEYWORDS", javaStringLiteral(debugKeywords))
             buildConfigField("String", "PROD_TOKEN_ENDPOINT", javaStringLiteral(prodTokenEndpoint))
+            buildConfigField("String", "REALTIME_URL", javaStringLiteral(debugRealtimeUrl))
         }
         getByName("release") {
             isMinifyEnabled = false
@@ -147,6 +159,7 @@ android {
             buildConfigField("String", "DEFAULT_DEVICE_SECRET", "\"\"")
             buildConfigField("String", "DEFAULT_KEYWORDS", "\"\"")
             buildConfigField("String", "PROD_TOKEN_ENDPOINT", "\"\"")
+            buildConfigField("String", "REALTIME_URL", "\"wss://api.openai.com/v1/realtime\"")
         }
     }
 

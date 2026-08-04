@@ -26,6 +26,9 @@ data/keywords.txt
 # Prebuilt APKs are distributed via GitHub Releases, not tracked in git.
 *.apk
 
+# Headless simulator QA output: screenshots, UI dumps, and local logs.
+artifacts/
+
 # Agent worktrees are created inside the repo; they are never part of it.
 .claude/worktrees/
 

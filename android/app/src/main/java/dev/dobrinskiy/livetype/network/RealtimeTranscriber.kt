@@ -1,6 +1,7 @@
 package dev.dobrinskiy.livetype.network
 
 import android.util.Base64
+import dev.dobrinskiy.livetype.BuildConfig
 import dev.dobrinskiy.livetype.audio.PcmAudioRecorder
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -39,7 +40,7 @@ class RealtimeTranscriber(
         val request = Request.Builder()
             // Transcription sessions carry their model in the ephemeral token
             // (audio.input.transcription.model). Passing ?model= is rejected.
-            .url(REALTIME_URL)
+            .url(BuildConfig.REALTIME_URL)
             .header("Authorization", "Bearer $clientSecret")
             .build()
 
@@ -168,8 +169,6 @@ class RealtimeTranscriber(
     }
 
     companion object {
-        private const val REALTIME_URL = "wss://api.openai.com/v1/realtime"
-
         private val httpClient = OkHttpClient.Builder()
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(0, TimeUnit.MILLISECONDS)
@@ -177,4 +176,3 @@ class RealtimeTranscriber(
             .build()
     }
 }
-

@@ -1,0 +1,506 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		AA0000000000000000000001 /* LiveTypeApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000001 /* LiveTypeApp.swift */; };
+		AA0000000000000000000002 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000002 /* SettingsView.swift */; };
+		AA0000000000000000000003 /* BuildSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000003 /* BuildSettings.swift */; };
+		AA0000000000000000000004 /* EndpointMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000004 /* EndpointMode.swift */; };
+		AA0000000000000000000005 /* RecordingLimit.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000005 /* RecordingLimit.swift */; };
+		AA0000000000000000000006 /* Settings.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000006 /* Settings.swift */; };
+		AA0000000000000000000007 /* MoneyFormat.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000007 /* MoneyFormat.swift */; };
+		AA0000000000000000000008 /* TokenProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000008 /* TokenProvider.swift */; };
+		AA0000000000000000000009 /* UsageReporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000009 /* UsageReporter.swift */; };
+		AA000000000000000000000A /* RealtimeTranscriber.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB000000000000000000000A /* RealtimeTranscriber.swift */; };
+		AA000000000000000000000B /* PcmAudioRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB000000000000000000000B /* PcmAudioRecorder.swift */; };
+		AA000000000000000000000C /* KeyboardViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB000000000000000000000C /* KeyboardViewController.swift */; };
+		AA000000000000000000000E /* LiveTypeKeyboard.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = AB000000000000000000000F /* LiveTypeKeyboard.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		AA000000000000000000000F /* E2EHarnessView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000015 /* E2EHarnessView.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		AC0000000000000000000001 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = AD0000000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = AE0000000000000000000002;
+			remoteInfo = LiveTypeKeyboard;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		AB0000000000000000000001 /* LiveTypeApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveTypeApp.swift; sourceTree = "<group>"; };
+		AB0000000000000000000002 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		AB0000000000000000000003 /* BuildSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BuildSettings.swift; sourceTree = "<group>"; };
+		AB0000000000000000000004 /* EndpointMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EndpointMode.swift; sourceTree = "<group>"; };
+		AB0000000000000000000005 /* RecordingLimit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingLimit.swift; sourceTree = "<group>"; };
+		AB0000000000000000000006 /* Settings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Settings.swift; sourceTree = "<group>"; };
+		AB0000000000000000000007 /* MoneyFormat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MoneyFormat.swift; sourceTree = "<group>"; };
+		AB0000000000000000000008 /* TokenProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TokenProvider.swift; sourceTree = "<group>"; };
+		AB0000000000000000000009 /* UsageReporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsageReporter.swift; sourceTree = "<group>"; };
+		AB000000000000000000000A /* RealtimeTranscriber.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RealtimeTranscriber.swift; sourceTree = "<group>"; };
+		AB000000000000000000000B /* PcmAudioRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PcmAudioRecorder.swift; sourceTree = "<group>"; };
+		AB000000000000000000000C /* KeyboardViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardViewController.swift; sourceTree = "<group>"; };
+		AB000000000000000000000D /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		AB000000000000000000000E /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		AB000000000000000000000F /* LiveTypeKeyboard.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = LiveTypeKeyboard.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		AB0000000000000000000010 /* LiveType.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = LiveType.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		AB0000000000000000000011 /* LiveType.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = LiveType.entitlements; sourceTree = "<group>"; };
+		AB0000000000000000000012 /* Info-Debug.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info-Debug.plist; sourceTree = "<group>"; };
+		AB0000000000000000000013 /* LiveTypeKeyboard.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = LiveTypeKeyboard.entitlements; sourceTree = "<group>"; };
+		AB0000000000000000000014 /* Info-Debug.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info-Debug.plist; sourceTree = "<group>"; };
+		AB0000000000000000000015 /* E2EHarnessView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = E2EHarnessView.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		AF0000000000000000000001 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		AF0000000000000000000002 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		B00000000000000000000001 = {
+			isa = PBXGroup;
+			children = (
+				B00000000000000000000002 /* LiveType */,
+				B00000000000000000000003 /* LiveTypeKeyboard */,
+				B00000000000000000000004 /* Shared */,
+				B00000000000000000000005 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		B00000000000000000000002 /* LiveType */ = {
+			isa = PBXGroup;
+			children = (
+				AB0000000000000000000001 /* LiveTypeApp.swift */,
+				AB0000000000000000000002 /* SettingsView.swift */,
+				AB0000000000000000000015 /* E2EHarnessView.swift */,
+				AB000000000000000000000D /* Info.plist */,
+				AB0000000000000000000011 /* LiveType.entitlements */,
+				AB0000000000000000000012 /* Info-Debug.plist */,
+			);
+			path = LiveType;
+			sourceTree = "<group>";
+		};
+		B00000000000000000000003 /* LiveTypeKeyboard */ = {
+			isa = PBXGroup;
+			children = (
+				AB000000000000000000000C /* KeyboardViewController.swift */,
+				AB000000000000000000000E /* Info.plist */,
+				AB0000000000000000000013 /* LiveTypeKeyboard.entitlements */,
+				AB0000000000000000000014 /* Info-Debug.plist */,
+			);
+			path = LiveTypeKeyboard;
+			sourceTree = "<group>";
+		};
+		B00000000000000000000004 /* Shared */ = {
+			isa = PBXGroup;
+			children = (
+				AB0000000000000000000003 /* BuildSettings.swift */,
+				AB0000000000000000000004 /* EndpointMode.swift */,
+				AB0000000000000000000005 /* RecordingLimit.swift */,
+				AB0000000000000000000006 /* Settings.swift */,
+				AB0000000000000000000007 /* MoneyFormat.swift */,
+				AB0000000000000000000008 /* TokenProvider.swift */,
+				AB0000000000000000000009 /* UsageReporter.swift */,
+				AB000000000000000000000A /* RealtimeTranscriber.swift */,
+				AB000000000000000000000B /* PcmAudioRecorder.swift */,
+			);
+			path = Shared;
+			sourceTree = "<group>";
+		};
+		B00000000000000000000005 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				AB0000000000000000000010 /* LiveType.app */,
+				AB000000000000000000000F /* LiveTypeKeyboard.appex */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		AE0000000000000000000001 /* LiveType */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B10000000000000000000001 /* Build configuration list for PBXNativeTarget "LiveType" */;
+			buildPhases = (
+				B20000000000000000000001 /* Sources */,
+				AF0000000000000000000001 /* Frameworks */,
+				B30000000000000000000001 /* Embed Foundation Extensions */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				B40000000000000000000001 /* PBXTargetDependency */,
+			);
+			name = LiveType;
+			productName = LiveType;
+			productReference = AB0000000000000000000010 /* LiveType.app */;
+			productType = "com.apple.product-type.application";
+		};
+		AE0000000000000000000002 /* LiveTypeKeyboard */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B10000000000000000000002 /* Build configuration list for PBXNativeTarget "LiveTypeKeyboard" */;
+			buildPhases = (
+				B20000000000000000000002 /* Sources */,
+				AF0000000000000000000002 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = LiveTypeKeyboard;
+			productName = LiveTypeKeyboard;
+			productReference = AB000000000000000000000F /* LiveTypeKeyboard.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		AD0000000000000000000001 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 1500;
+				LastUpgradeCheck = 1500;
+				TargetAttributes = {
+					AE0000000000000000000001 = {
+						CreatedOnToolsVersion = 15.0;
+					};
+					AE0000000000000000000002 = {
+						CreatedOnToolsVersion = 15.0;
+					};
+				};
+			};
+			buildConfigurationList = B10000000000000000000003 /* Build configuration list for PBXProject "LiveType" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = B00000000000000000000001;
+			productRefGroup = B00000000000000000000005 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				AE0000000000000000000001 /* LiveType */,
+				AE0000000000000000000002 /* LiveTypeKeyboard */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXSourcesBuildPhase section */
+		B20000000000000000000001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AA0000000000000000000001 /* LiveTypeApp.swift in Sources */,
+				AA0000000000000000000002 /* SettingsView.swift in Sources */,
+				AA000000000000000000000F /* E2EHarnessView.swift in Sources */,
+				AA0000000000000000000003 /* BuildSettings.swift in Sources */,
+				AA0000000000000000000004 /* EndpointMode.swift in Sources */,
+				AA0000000000000000000005 /* RecordingLimit.swift in Sources */,
+				AA0000000000000000000006 /* Settings.swift in Sources */,
+				AA0000000000000000000007 /* MoneyFormat.swift in Sources */,
+				AA0000000000000000000008 /* TokenProvider.swift in Sources */,
+				AA0000000000000000000009 /* UsageReporter.swift in Sources */,
+				AA000000000000000000000A /* RealtimeTranscriber.swift in Sources */,
+				AA000000000000000000000B /* PcmAudioRecorder.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B20000000000000000000002 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AA000000000000000000000C /* KeyboardViewController.swift in Sources */,
+				AA0000000000000000000003 /* BuildSettings.swift in Sources */,
+				AA0000000000000000000004 /* EndpointMode.swift in Sources */,
+				AA0000000000000000000005 /* RecordingLimit.swift in Sources */,
+				AA0000000000000000000006 /* Settings.swift in Sources */,
+				AA0000000000000000000007 /* MoneyFormat.swift in Sources */,
+				AA0000000000000000000008 /* TokenProvider.swift in Sources */,
+				AA0000000000000000000009 /* UsageReporter.swift in Sources */,
+				AA000000000000000000000A /* RealtimeTranscriber.swift in Sources */,
+				AA000000000000000000000B /* PcmAudioRecorder.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		B30000000000000000000001 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				AA000000000000000000000E /* LiveTypeKeyboard.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		B40000000000000000000001 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = AE0000000000000000000002 /* LiveTypeKeyboard */;
+			targetProxy = AC0000000000000000000001 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		B50000000000000000000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++17";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				LIVETYPE_DEVICE_SECRET = "";
+				LIVETYPE_REALTIME_URL = "wss://api.openai.com/v1/realtime";
+				LIVETYPE_TOKEN_ENDPOINT = "http://127.0.0.1:8787/token";
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		B50000000000000000000002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++17";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				LIVETYPE_DEVICE_SECRET = "";
+				LIVETYPE_REALTIME_URL = "wss://api.openai.com/v1/realtime";
+				LIVETYPE_TOKEN_ENDPOINT = "";
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		B50000000000000000000003 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CODE_SIGN_ENTITLEMENTS = LiveType/LiveType.entitlements;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = LiveType/Info-Debug.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = dev.dobrinskiy.livetype;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		B50000000000000000000004 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CODE_SIGN_ENTITLEMENTS = LiveType/LiveType.entitlements;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = LiveType/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = dev.dobrinskiy.livetype;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		B50000000000000000000005 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CODE_SIGN_ENTITLEMENTS = LiveTypeKeyboard/LiveTypeKeyboard.entitlements;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = LiveTypeKeyboard/Info-Debug.plist;
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = dev.dobrinskiy.livetype.keyboard;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		B50000000000000000000006 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CODE_SIGN_ENTITLEMENTS = LiveTypeKeyboard/LiveTypeKeyboard.entitlements;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = LiveTypeKeyboard/Info.plist;
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = dev.dobrinskiy.livetype.keyboard;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		B10000000000000000000001 /* Build configuration list for PBXNativeTarget "LiveType" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B50000000000000000000003 /* Debug */,
+				B50000000000000000000004 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		B10000000000000000000002 /* Build configuration list for PBXNativeTarget "LiveTypeKeyboard" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B50000000000000000000005 /* Debug */,
+				B50000000000000000000006 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		B10000000000000000000003 /* Build configuration list for PBXProject "LiveType" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B50000000000000000000001 /* Debug */,
+				B50000000000000000000002 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = AD0000000000000000000001 /* Project object */;
+}

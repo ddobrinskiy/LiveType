@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LiveType E2E progress</title>
+  <style>
+    :root { color-scheme: dark; --bg:#101417; --card:#1b2428; --muted:#9aaeb3; --ok:#5ee39a; --bad:#ff7777; --now:#75c8ff; --ios:#c49bff; --android:#71d68e; }
+    * { box-sizing: border-box; }
+    body { margin:0; padding:28px; background:var(--bg); color:#edf6f7; font:15px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+    main { max-width:1280px; margin:0 auto; }
+    h1 { margin:0 0 6px; font-size:28px; }
+    h2 { margin:0; font-size:19px; color:#d6e5e7; }
+    h3 { margin:0 0 8px; font-size:16px; }
+    .meta { color:var(--muted); margin-bottom:20px; }
+    .card.current { border:1px solid #2e8ac1; background:linear-gradient(135deg,#192b36,#172126); }
+    .columns { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:18px; align-items:start; }
+    .platform { min-width:0; }
+    .collapsible { margin:26px 0 0; }
+    .collapsible > summary { display:flex; align-items:center; gap:8px; margin:0 0 10px; padding:0; cursor:pointer; list-style:none; user-select:none; }
+    .collapsible > summary::-webkit-details-marker { display:none; }
+    .collapsible > summary::after { content:"⌄"; margin-left:0; color:var(--muted); font-size:22px; line-height:1; transition:transform .15s ease; }
+    .collapsible:not([open]) > summary::after { content:"›"; }
+    .section-title { color:#d6e5e7; font-size:19px; font-weight:700; }
+    .collapsible.current { margin-top:26px; }
+    .collapsible.platform { margin-top:0; }
+    .platform.ios .section-title { color:var(--ios); }
+    .platform.android .section-title { color:var(--android); }
+    .stack { display:grid; gap:12px; }
+    .card { padding:16px; border-radius:12px; background:var(--card); border:1px solid #2b383d; }
+    .card p { margin:5px 0; }
+    .card .title-line { display:flex; gap:8px; align-items:flex-start; justify-content:space-between; }
+    .details { color:var(--muted); white-space:pre-wrap; }
+    .badge { display:inline-block; flex:none; padding:2px 8px; border-radius:999px; font-size:12px; background:#334147; color:#dcebed; }
+    .pass { border-color:#286a4b; }
+    .pass h3, .pass .result { color:var(--ok); }
+    .fail { border-color:#713c43; }
+    .fail h3, .fail .result { color:var(--bad); }
+    .active { color:var(--now); }
+    .platform-count { color:var(--muted); font-size:13px; font-weight:400; }
+    .empty { color:var(--muted); font-style:italic; }
+    @media (max-width: 760px) { body { padding:16px; } .columns { grid-template-columns:1fr; } }
+  </style>
+</head>
+<body>
+<main>
+  <h1>LiveType E2E progress</h1>
+  <div id="meta" class="meta">Подключение к progress.json…</div>
+  <details class="collapsible current" data-section="current" open>
+    <summary><span class="section-title">Что делаем сейчас</span></summary>
+    <div id="current"></div>
+  </details>
+  <details class="collapsible" id="shared-section" data-section="shared" open>
+    <summary><span class="section-title">Общее</span></summary>
+    <div id="shared" class="stack"></div>
+  </details>
+  <div class="columns">
+    <details class="collapsible platform ios" data-section="ios" open>
+      <summary><span class="section-title">iOS</span><span id="ios-count" class="platform-count"></span></summary>
+      <div id="ios" class="stack"></div>
+    </details>
+    <details class="collapsible platform android" data-section="android" open>
+      <summary><span class="section-title">Android</span><span id="android-count" class="platform-count"></span></summary>
+      <div id="android" class="stack"></div>
+    </details>
+  </div>
+</main>
+<script>
+  const $ = (id) => document.getElementById(id);
+  const esc = (value) => String(value ?? "").replace(/[&<>\"]/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c]));
+  const time = (value) => value ? new Date(value).toLocaleTimeString() : "—";
+  const platformName = (value) => value === "ios" ? "iOS" : value === "android" ? "Android" : "Общее";
+  function card(item, current = false) {
+    const result = item.status || item.result || "info";
+    const cls = result === "passed" || result === "pass" ? "pass" : result === "failed" || result === "fail" ? "fail" : "active";
+    const kind = item.kind === "success" || result === "pass" || result === "passed" ? "получилось" : "попытка";
+    return `<article class="card ${cls} ${current ? "current" : ""}">
+      <div class="title-line"><h3>${esc(item.title)}</h3><span class="badge">${esc(kind)} · ${esc(result)}</span></div>
+      <p>${esc(item.message)}</p>
+      ${item.details ? `<p class="details">${esc(item.details)}</p>` : ""}
+      <p class="details">${current ? `${esc(platformName(item.platform))} · ` : `${esc(item.run_id || "")} · `}обновлено ${time(item.updated_at)}</p>
+    </article>`;
+  }
+  function history(data) {
+    if (Array.isArray(data.cards)) return data.cards;
+    // Graceful rendering while an old runner is being upgraded.
+    return [
+      ...(data.succeeded || []).map((item) => ({...item, kind:"success", platform:item.platform || "shared"})),
+      ...(data.tried || []).map((item) => ({...item, kind:"attempt", platform:item.platform || "shared"})),
+    ];
+  }
+  function sorted(items) {
+    return [...items].sort((a, b) => String(b.updated_at || "").localeCompare(String(a.updated_at || "")));
+  }
+  const SECTION_STATE_KEY = "livetype-e2e-section-state-v1";
+  function restoreSectionState() {
+    let saved = {};
+    try { saved = JSON.parse(localStorage.getItem(SECTION_STATE_KEY) || "{}"); } catch (_) {}
+    document.querySelectorAll("details[data-section]").forEach((section) => {
+      if (saved[section.dataset.section] === false) section.open = false;
+      section.addEventListener("toggle", () => {
+        try {
+          const state = JSON.parse(localStorage.getItem(SECTION_STATE_KEY) || "{}");
+          state[section.dataset.section] = section.open;
+          localStorage.setItem(SECTION_STATE_KEY, JSON.stringify(state));
+        } catch (_) {}
+      });
+    });
+  }
+  function renderColumn(data, platform, elementId, countId) {
+    const items = sorted(history(data).filter((item) => (item.platform || "shared") === platform));
+    $(countId).textContent = `(${items.length} карточек)`;
+    $(elementId).innerHTML = items.length ? items.map((item) => card(item)).join("") : `<p class="empty">Пока нет карточек.</p>`;
+  }
+  function render(data) {
+    const run = data.run_status || "unknown";
+    $("meta").textContent = `run ${data.run_id || "—"} · статус: ${run} · последнее обновление: ${time(data.updated_at)} · автообновление 1с`;
+    $("current").innerHTML = data.current ? card(data.current, true) : `<p class="empty">Нет активного шага.</p>`;
+    const shared = sorted(history(data).filter((item) => (item.platform || "shared") === "shared"));
+    $("shared").innerHTML = shared.length ? shared.map((item) => card(item)).join("") : `<p class="empty">Пока нет общих карточек.</p>`;
+    renderColumn(data, "ios", "ios", "ios-count");
+    renderColumn(data, "android", "android", "android-count");
+  }
+  async function refresh() {
+    try {
+      const response = await fetch(`/progress.json?ts=${Date.now()}`, { cache:"no-store" });
+      if (!response.ok) throw new Error(`${response.status}`);
+      render(await response.json());
+    } catch (error) {
+      $("meta").textContent = `Ожидание progress.json (${error.message})…`;
+    }
+  }
+  restoreSectionState();
+  refresh();
+  setInterval(refresh, 1000);
+</script>
+</body>
+</html>

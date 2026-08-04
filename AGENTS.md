@@ -30,6 +30,20 @@ Verify the APK actually recompiled — a sub-second `BUILD SUCCESSFUL` usually
 means `compileDebugKotlin` was `UP-TO-DATE` and nothing changed. Compare the
 APK's mtime against the clock rather than trusting the build log.
 
+**`adb install` printing `Success` is not proof either.** Observed 2026-08-04: an
+install reported success and `dumpsys package` showed the new `versionName` and a
+fresh `lastUpdateTime`, while the APK resident on the phone was an older build
+that lacked the new strings entirely — an hour of debugging went into the app
+"not rendering" code it did not have. Verify by hash, and pass `-s <serial>`
+whenever more than one device or emulator might be attached:
+
+```bash
+adb -s <serial> install -r app/build/outputs/apk/debug/app-debug.apk
+APK=$(adb -s <serial> shell pm path dev.dobrinskiy.livetype | sed 's/^package://' | tr -d '\r')
+adb -s <serial> pull "$APK" /tmp/installed.apk
+shasum -a256 /tmp/installed.apk app/build/outputs/apk/debug/app-debug.apk   # must match
+```
+
 **The same applies after every merge.** Merging a branch — especially work done
 by a parallel agent in a worktree — is a change to the app like any other, and
 until the merged APK is on the phone nothing has actually been verified. A
